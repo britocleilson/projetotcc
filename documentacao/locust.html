@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documentação do Script locust.py</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+            color: #333;
+        }
+        .container {
+            max-width: 900px;
+            margin: auto;
+            background: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        h1, h2, h3 {
+            color: #0056b3;
+        }
+        pre {
+            background: #eee;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        code {
+            font-family: "Courier New", Courier, monospace;
+        }
+        .citation {
+            font-size: 0.9em;
+            color: #555;
+            margin-left: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Documentação do Script `locust.py`</h1>
+        <p>O script `locust.py` é um script de teste de carga desenvolvido para simular o comportamento de usuários navegando e interagindo com uma loja online (provavelmente a Google Cloud Boutique, dado o contexto). Ele utiliza a ferramenta <a href="https://locust.io/" target="_blank">Locust</a> para orquestrar esses testes, definindo diferentes tarefas com probabilidades de execução variadas para imitar um tráfego de usuário realista.</p>
+        <p>Os pesos atribuídos no decorator `@task(x)` representam a probabilidade de cada tarefa ser executada. Cada ponto de peso corresponde a 5% da probabilidade total, seguindo as probabilidades definidas em um artigo de referência (não especificado neste script).</p>
+
+        <h2>1. Importações</h2>
+        <p>O script importa as seguintes bibliotecas:</p>
+        <ul>
+            <li><code>HttpUser</code>, <code>task</code>, <code>between</code> da `locust`: Classes e decorators essenciais fornecidos pelo framework Locust para criar usuários de teste, definir tarefas e controlar o tempo de espera entre as requisições.</li>
+            <li><code>random</code>: Módulo padrão do Python para gerar números aleatórios, usado aqui para selecionar produtos, moedas e quantidades.</li>
+        </ul>
+
+        <h2>2. Classe `MicroserviceUser`</h2>
+        <p>Esta classe herda de `HttpUser` do Locust e define o comportamento de um usuário simulado na loja.</p>
+        <pre><code>
+class MicroserviceUser(HttpUser):
+    wait_time = between(1, 10)  # Espera entre 1-10s entre as requisições
+        </code></pre>
+        <ul>
+            <li><code>wait_time = between(1, 10)</code>: Define que cada usuário virtual esperará entre 1 e 10 segundos aleatoriamente após a conclusão de uma tarefa antes de executar a próxima. Isso simula um comportamento de usuário mais natural.</li>
+        </ul>
+
+        <h3>2.1. Método `on_start(self)`</h3>
+        <p>Este método é executado uma vez no início da vida de cada usuário virtual.</p>
+        <pre><code>
+    def on_start(self):
+        self.client.verify = False
+        self.products = [
+            "0PUK6V6EV0", "1YMWWN1N4O", "2ZYFJ3GM2N", "66VCHSJNUP",
+            "6E92ZMYYFZ", "9SIQT8TOJO", "L9ECAV7KIM", "LS4PSXUNUM",
+            "OLJCESPC7Z"
+        ]
+        </code></pre>
+        <ul>
+            <li><code>self.client.verify = False</code>: Desabilita a verificação de certificados SSL para o cliente HTTP, o que pode ser útil em ambientes de desenvolvimento ou teste com certificados autoassinados.</li>
+            <li><code>self.products</code>: Inicializa uma lista de IDs de produtos que serão usados nas tarefas de navegação e adição ao carrinho.</li>
+        </ul>
+
+        <h3>2.2. Tarefas (@task decorators)</h3>
+        <p>Cada método decorado com `@task` representa uma ação que um usuário pode realizar. O número entre parênteses indica o peso da tarefa, influenciando sua probabilidade de execução.</p>
+
+        <h4>2.2.1. `browse_product()`</h4>
+        <p>Simula a navegação por uma página de produto.</p>
+        <pre><code>
+    @task(10)
+    def browse_product(self):
+        """Navegar por um produto (probabilidade 1/2)"""
+        product = random.choice(self.products)
+        self.client.get(f"/product/{product}", name="/product/[id]")
+        </code></pre>
+        <ul>
+            <li>**Peso**: 10 (representa 10/20, ou 1/2 da probabilidade total de execução de tarefas, assumindo soma de pesos = 20).</li>
+            <li>Seleciona um produto aleatoriamente da lista `self.products`.</li>
+            <li>Faz uma requisição GET para a página do produto, com o nome da requisição formatado para agregação de métricas no Locust.</li>
+        </ul>
+
+        <h4>2.2.2. `change_currency()`</h4>
+        <p>Simula a ação de alterar a moeda na loja.</p>
+        <pre><code>
+    @task(2)
+    def change_currency(self):
+        """Alterar moeda (probabilidade 1/10)"""
+        currencies = ["EUR", "USD", "JPY","GBP","TRY", "CAD"]
+        self.client.post("/setCurrency", {
+            "currency_code": random.choice(currencies)
+        }, name="/setCurrency")
+        </code></pre>
+        <ul>
+            <li>**Peso**: 2 (representa 2/20, ou 1/10 da probabilidade).</li>
+            <li>Seleciona uma moeda aleatoriamente de uma lista predefinida.</li>
+            <li>Faz uma requisição POST para o endpoint `/setCurrency`, enviando o código da moeda.</li>
+        </ul>
+
+        <h4>2.2.3. `add_to_cart()`</h4>
+        <p>Simula a adição de um produto ao carrinho.</p>
+        <pre><code>
+    @task(2)
+    def add_to_cart(self):
+        """Adicionar ao carrinho (probabilidade 1/5)"""
+        product = random.choice(self.products)
+        self.client.get(f"/product/{product}", name="/product/[id]")
+        self.client.post("/cart", {
+            "product_id": product,
+            "quantity": random.randint(1,3)
+        }, name="/cart")
+        </code></pre>
+        <ul>
+            <li>**Peso**: 4 (o comentário indica 1/5, que seria 4/20; o código tem peso 2. **Nota**: Há uma inconsistência entre o peso no `@task` (2) e o comentário (1/5, que implicaria peso 4). A documentação assume o peso do código, que é 2).</li>
+            <li>Primeiro, navega até a página de um produto selecionado aleatoriamente.</li>
+            <li>Em seguida, faz uma requisição POST para `/cart` para adicionar o produto ao carrinho com uma quantidade aleatória entre 1 e 3.</li>
+        </ul>
+
+        <h4>2.2.4. `view_cart()`</h4>
+        <p>Simula a visualização do conteúdo do carrinho.</p>
+        <pre><code>
+    @task(4)
+    def view_cart(self):
+        """Visualizar carrinho (probabilidade 1/5)"""
+        self.client.get("/cart", name="/cart")
+        </code></pre>
+        <ul>
+            <li>**Peso**: 4 (representa 4/20, ou 1/5 da probabilidade).</li>
+            <li>Faz uma requisição GET para o endpoint `/cart`.</li>
+        </ul>
+
+        <h4>2.2.5. `checkout()`</h4>
+        <p>Simula um fluxo completo de checkout, incluindo a adição de um item ao carrinho e o preenchimento e envio do formulário de checkout.</p>
+        <pre><code>
+    @task(1)
+    def checkout(self):
+        """Fluxo completo de checkout"""
+        self.add_to_cart() # Primeiro, adiciona um item ao carrinho
+
+        headers = {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Referer": f"{self.host}/cart"
+        }
+
+        form_data = {
+            "email": "someone@example.com",
+            "street_address": "1600 Amphitheatre Parkway",
+            "zip_code": "94043",
+            "city": "Mountain View",
+            "state": "CA",
+            "country": "United States",
+            "credit_card_number": "4432801561520454",
+            "credit_card_expiration_month": "1",
+            "credit_card_expiration_year": "2026",
+            "credit_card_cvv": "672"
+        }
+
+        with self.client.post("/cart/checkout",
+                              data=form_data,
+                              headers=headers,
+                              name="/cart/checkout",
+                              catch_response=True) as response:
+            if response.status_code == 422:
+                response.failure(f"Erro de validação: {response.text}")
+        </code></pre>
+        <ul>
+            <li>**Peso**: 1 (representa 1/20 da probabilidade).</li>
+            <li>Chama `self.add_to_cart()` para garantir que há um item no carrinho antes do checkout.</li>
+            <li>Define cabeçalhos HTTP, incluindo `Content-Type` e `Referer` para simular uma navegação realista.</li>
+            <li>Prepara os dados do formulário de checkout com informações de exemplo (e-mail, endereço, detalhes do cartão de crédito).</li>
+            <li>Faz uma requisição POST para `/cart/checkout`, enviando os dados do formulário. Usa `catch_response=True` para inspecionar a resposta.</li>
+            <li>Se a resposta tiver status 422 (Erro de Validação), marca a requisição como falha no Locust, registrando a mensagem de erro.</li>
+        </ul>
+
+        <h4>2.2.6. `refresh_frontend()`</h4>
+        <p>Simula a atualização da página inicial da loja.</p>
+        <pre><code>
+    @task(1)
+    def refresh_frontend(self):
+        """Atualizar frontend (probabilidade 1/20)"""
+        self.client.get("/", name="/")
+        </code></pre>
+        <ul>
+            <li>**Peso**: 1 (representa 1/20 da probabilidade).</li>
+            <li>Faz uma requisição GET para a raiz do site (`/`).</li>
+        </ul>
+        <p>A soma total dos pesos das tarefas é 10 + 2 + 2 + 4 + 1 + 1 = 20. As probabilidades indicadas nos comentários correspondem a este total de 20 pontos.</p>
+    </div>
+</body>
+</html>

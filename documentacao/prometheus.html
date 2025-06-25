@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documentação Detalhada dos Scripts de Extração de Métricas do Prometheus</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+            color: #333;
+        }
+        .container {
+            max-width: 900px;
+            margin: auto;
+            background: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+        h1, h2, h3 {
+            color: #0056b3;
+        }
+        pre {
+            background: #eee;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        code {
+            font-family: "Courier New", Courier, monospace;
+        }
+        .citation {
+            font-size: 0.9em;
+            color: #555;
+            margin-left: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Documentação Detalhada dos Scripts de Extração de Métricas do Prometheus</h1>
+        <p>Este documento fornece uma documentação abrangente para os scripts Python `env.py`, `metrics.py` e `prom_extractor.py`, que juntos formam um pipeline para extrair dados de métricas e de grafo de um ambiente Kubernetes monitorado pelo Prometheus, processá-los e prepará-los para modelos de previsão de séries temporais.</p>
+
+        <h2>1. Script `env.py`</h2>
+        <p>O script `env.py` atua como um arquivo de configuração, armazenando variáveis de ambiente e constantes que são utilizadas por outros scripts no projeto.</p>
+        <pre><code>
+PROMETHEUS_ENDPOINT = 'http://localhost:9090/api/v1/query_range'
+METRIC_QUERY = 'sum by (pod) (rate({}{{pod="{}"}}[{}]))'
+GRAPH_QUERY = 'sum by (source_workload, destination_workload) (rate(istio_requests_total[{}]))'
+NAMESPACE = 'boutique'
+        </code></pre>
+        <ul>
+            <li><code>PROMETHEUS_ENDPOINT</code>: Define o endpoint da API `query_range` do servidor Prometheus, geralmente `http://localhost:9090/api/v1/query_range`.</li>
+            <li><code>METRIC_QUERY</code>: Um template de string para consultas de métricas específicas de pods no Prometheus. Ele usa placeholders para o nome da métrica, o nome do pod e o intervalo de taxa. Exemplo: `'sum by (pod) (rate({}{{pod="{}"}}[{}]))'`.</li>
+            <li><code>GRAPH_QUERY</code>: Um template de string para consultas de métricas relacionadas ao grafo de comunicação (tráfego de requisições) entre workloads do Istio. Ele usa um placeholder para o intervalo de taxa. Exemplo: `'sum by (source_workload, destination_workload) (rate(istio_requests_total[{}]))'`.</li>
+            <li><code>NAMESPACE</code>: O namespace do Kubernetes onde os pods estão rodando e de onde as métricas serão coletadas. No exemplo, é 'boutique'.</li>
+        </ul>
+
+        <h2>2. Script `metrics.py`</h2>
+        <p>O script `metrics.py` fornece funções utilitárias para interagir com a API do Kubernetes e com o Prometheus, buscando informações sobre pods e dados de métricas/grafo.</p>
+
+        <h3>2.1. Importações</h3>
+        <p>As importações incluem:</p>
+        <ul>
+            <li><code>json</code>: Para trabalhar com dados JSON.</li>
+            <li><code>typing</code>: Para suporte a anotações de tipo.</li>
+            <li><code>requests</code>: Para fazer requisições HTTP ao Prometheus.</li>
+            <li><code>env</code>: O módulo de configuração definido anteriormente.</li>
+            <li><code>kubernetes.client</code>, <code>kubernetes.config</code>: Para interagir com a API do Kubernetes.</li>
+        </ul>
+
+        <h3>2.2. Função <code>get_pods_simplified()</code></h3>
+        <p>Esta função obtém informações simplificadas dos pods de um namespace do Kubernetes, excluindo pods que são geradores de carga.</p>
+        <pre><code>
+def get_pods_simplified() -> List[Tuple[str, str]]:
+    """
+    Obtém informações de pods de um namespace do Kubernetes, excluindo 'loadgenerator'.
+    ...
+    """
+    namespace = env.NAMESPACE
+    config.load_kube_config() # Carrega a configuração do Kubernetes a partir do kubeconfig local.
+    v1 = client.CoreV1Api()
+    ret = v1.list_namespaced_pod(namespace)
+
+    pod_info = [
+        (
+            pod.metadata.name,
+            pod.metadata.labels.get("app") or pod.metadata.labels.get("component") or pod.metadata.name.split("-")[0]
+        )
+        for pod in ret.items
+        if pod.metadata.name.split("-")[0] != 'loadgenerator'
+    ]
+    return pod_info
+        </code></pre>
+        <ul>
+            <li>Carrega a configuração do Kubernetes a partir do arquivo kubeconfig local.</li>
+            <li>Cria uma instância da API CoreV1 para interagir com os recursos básicos do Kubernetes.</li>
+            <li>Lista todos os pods no namespace definido em `env.NAMESPACE`.</li>
+            <li>Filtra os pods, excluindo aqueles cujo nome começa com 'loadgenerator-'.</li>
+            <li>Para cada pod restante, extrai seu nome e o nome do serviço associado (tentando as labels 'app', 'component' ou a primeira parte do nome do pod).</li>
+            <li>Retorna uma lista de tuplas `(nome_do_pod, nome_do_serviço)`.</li>
+        </ul>
+
+        <h3>2.3. Função <code>get_prometheus_data()</code></h3>
+        <p>Função genérica para buscar dados brutos do Prometheus usando a API `query_range`.</p>
+        <pre><code>
+def get_prometheus_data(query: str, start: int, end: int, resolution: int) -> Dict:
+    """
+    Busca dados de série temporal do Prometheus usando a API query_range.
+    ...
+    """
+    response = requests.get(env.PROMETHEUS_ENDPOINT, {
+        "query": query, "start": start, "end": end, "step": resolution
+    })
+    response.raise_for_status() # Levanta um HTTPError para respostas de erro (4xx ou 5xx).
+    response = json.loads(response.text)
+    return response["data"]["result"]
+        </code></pre>
+        <ul>
+            <li>Faz uma requisição GET ao `PROMETHEUS_ENDPOINT` (definido em `env.py`) com a consulta, tempo de início, tempo de fim e resolução.</li>
+            <li>Verifica se a requisição foi bem-sucedida; caso contrário, levanta uma exceção.</li>
+            <li>Converte a resposta JSON para um dicionário Python e retorna a seção de resultados.</li>
+        </ul>
+
+        <h3>2.4. Função <code>get_prometheus_metrics()</code></h3>
+        <p>Recupera dados de uma métrica específica do Prometheus para um determinado pod dentro de um intervalo de tempo.</p>
+        <pre><code>
+def get_prometheus_metrics(metric: str, pod: str, step: str, start: int, end: int, resolution: int) -> Dict:
+    """
+    Recupera dados de uma métrica específica do Prometheus para um determinado pod
+    dentro de um intervalo de tempo.
+    ...
+    """
+    query = env.METRIC_QUERY.format(metric, pod, step)
+    return get_prometheus_data(query, start, end, resolution)
+        </code></pre>
+        <ul>
+            <li>Formata a `env.METRIC_QUERY` com a métrica, pod e passo fornecidos.</li>
+            <li>Chama `get_prometheus_data` para executar a consulta e buscar os dados.</li>
+        </ul>
+
+        <h3>2.5. Função <code>get_prometheus_graph()</code></h3>
+        <p>Recupera dados de uma consulta predefinida do Prometheus para ser utilizada em gráficos de comunicação (ex: tráfego entre workloads).</p>
+        <pre><code>
+def get_prometheus_graph(step: str, start: int, end: int, resolution: int) -> Dict:
+    """
+    Recupera dados de uma query predefinida do Prometheus para ser utilizada em gráficos,
+    dentro de um intervalo de tempo.
+    ...
+    """
+    query = env.GRAPH_QUERY.format(step)
+    return get_prometheus_data(query, start, end, resolution)
+        </code></pre>
+        <ul>
+            <li>Formata a `env.GRAPH_QUERY` com o passo fornecido.</li>
+            <li>Chama `get_prometheus_data` para executar a consulta e buscar os dados.</li>
+        </ul>
+
+        <h2>3. Script `prom_extractor.py`</h2>
+        <p>O script `prom_extractor.py` é o principal script do pipeline. Ele orquestra a extração de métricas de CPU e memória de pods, bem como dados de comunicação entre eles, processa esses dados e os salva em formatos adequados para o treinamento de modelos de previsão.</p>
+
+        <h3>3.1. Importações</h3>
+        <p>As importações incluem:</p>
+        <ul>
+            <li><code>tqdm</code>, <code>tqdm.contrib.itertools.product</code>: Para exibir barras de progresso durante as operações.</li>
+            <li><code>metrics</code> as <code>mp</code>: O módulo `metrics.py` importado para utilizar suas funções.</li>
+            <li><code>pandas</code> as <code>pd</code>: Para manipulação de dados em DataFrames.</li>
+            <li><code>numpy</code> as <code>np</code>: Para operações com arrays numéricos.</li>
+            <li><code>os</code>: Para interações com o sistema operacional, como criação de diretórios.</li>
+            <li><code>env</code>: O módulo de configuração.</li>
+            <li><code>datetime</code>, <code>timedelta</code> da `datetime`: Para manipulação de datas e tempos.</li>
+        </ul>
+
+        <h3>3.2. Definição de Parâmetros de Tempo e Configuração</h3>
+        <pre><code>
+end_time = datetime.now()
+start_time = end_time - timedelta(hours=24)
+END_TIMESTAMP = int(end_time.timestamp())
+START_TIMESTAMP = int(start_time.timestamp())
+
+RESOLUTION_STEP = 300
+RATE_STEP = "1h"
+OUTPUT_DIR = "../output"
+WINDOW_SIZE = 12
+HORIZONT = 1
+STATS_DIR = None
+IS_TEST = False
+        </code></pre>
+        <ul>
+            <li><code>end_time</code>, <code>start_time</code>: Definem o intervalo de tempo para a extração dos dados (últimas 24 horas a partir do momento da execução).</li>
+            <li><code>END_TIMESTAMP</code>, <code>START_TIMESTAMP</code>: Convertem os objetos `datetime` para timestamps Unix (em segundos), formato exigido pelo Prometheus.</li>
+            <li><code>RESOLUTION_STEP</code>: A granularidade dos dados retornados pelas consultas do Prometheus, em segundos (300s = 5 minutos).</li>
+            <li><code>RATE_STEP</code>: A janela de tempo usada no cálculo de taxa nas consultas Prometheus (ex: '1h' para 1 hora).</li>
+            <li><code>OUTPUT_DIR</code>: O diretório onde os arquivos de saída (CSV, NPZ) serão salvos.</li>
+            <li><code>WINDOW_SIZE</code>: O número de passos de tempo anteriores a serem considerados para formar a janela de entrada para os modelos de previsão.</li>
+            <li><code>HORIZONT</code>: O horizonte de predição, ou seja, quantos passos de tempo à frente o modelo deve prever (aqui, 1 passo).</li>
+            <li><code>STATS_DIR</code>: Diretório para estatísticas de normalização. Se `None`, as estatísticas são calculadas a partir dos dados atuais.</li>
+            <li><code>IS_TEST</code>: Uma flag (atualmente sem efeito no fluxo do script).</li>
+        </ul>
+
+        <h3>3.3. Definição de Métricas e Pods</h3>
+        <pre><code>
+metric_info = [
+        ("container_cpu_usage_seconds_total", "cpu"),
+        ("container_memory_usage_bytes", "mem")
+]
+pod_info = mp.get_pods_simplified()
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+        </code></pre>
+        <ul>
+            <li><code>metric_info</code>: Lista de tuplas, onde cada tupla contém o nome completo da métrica do Prometheus e um nome curto para ela (ex: "cpu", "mem").</li>
+            <li><code>pod_info</code>: Obtém a lista simplificada de pods usando a função `get_pods_simplified()` do módulo `metrics`.</li>
+            <li>Cria o `OUTPUT_DIR` se ele ainda não existir.</li>
+        </ul>
+
+        <h3>3.4. Carregamento e Processamento de Métricas dos Nós (Pods)</h3>
+        <pre><code>
+print("Carregando métricas dos pods a partir do Prometheus...")
+node_df = []
+for (metric_id, metric_name),(pod_id, pod_name) in tqdm(product(metric_info, pod_info)):
+    result = mp.get_prometheus_metrics(metric_id, pod_id, RATE_STEP, START_TIMESTAMP, END_TIMESTAMP, RESOLUTION_STEP)
+    if not result:
+        continue
+    values = result[0]["values"]
+    df = pd.DataFrame(values, columns=["timestamp", f"{pod_name}-{metric_name}"]).set_index("timestamp")
+    node_df.append(df)
+
+node_df = pd.concat(node_df, axis=1, join="inner").apply(pd.to_numeric)
+
+if STATS_DIR is None:
+    node_mean = node_df.mean()
+    node_std = node_df.std()
+    node_mean.to_csv(os.path.join(OUTPUT_DIR, "pod_mean.csv"))
+    node_std.to_csv(os.path.join(OUTPUT_DIR, "pod_std.csv"))
+    print("Salvando estatísticas de normalização...")
+    node_dfs = (node_df - node_mean) / node_std
+        </code></pre>
+        <ul>
+            <li>Itera sobre todas as combinações de métricas e pods.</li>
+            <li>Para cada combinação, chama `mp.get_prometheus_metrics` para obter os dados do Prometheus.</li>
+            <li>Se houver resultados, cria um DataFrame Pandas para a métrica/pod e o anexa a uma lista.</li>
+            <li>Após coletar todos os DataFrames, concatena-os usando um `inner join` no timestamp, garantindo que apenas timestamps comuns a todas as séries sejam mantidos.</li>
+            <li>Se `STATS_DIR` for `None`, calcula a média e o desvio padrão de cada coluna (métrica) e os salva em arquivos CSV. Em seguida, normaliza os dados usando a normalização z-score.</li>
+        </ul>
+
+        <h3>3.5. Carregamento e Processamento de Informações de Requisições (Grafo)</h3>
+        <pre><code>
+print("Carregando informações de requisições entre pods...")
+graph_query = mp.get_prometheus_graph(RATE_STEP, START_TIMESTAMP, END_TIMESTAMP, RESOLUTION_STEP)
+graph_df = []
+for result in tqdm(graph_query):
+    source = result["metric"].get("source_workload")
+    dest = result["metric"].get("destination_workload")
+    if source == "unknown" or dest == "unknown" or source == "loadgenerator" or dest == "loadgenerator":
+        continue
+    for [timestamp, value] in result["values"]:
+        graph_df.append([timestamp,source,dest,float(value)])
+
+graph_df = pd.DataFrame(graph_df, columns=["timestamp", "from", "to", "value"])
+graph_df = graph_df[graph_df["timestamp"].isin(node_df.index)].set_index("timestamp")
+graph_df["value"] = graph_df["value"].astype(float)
+        </code></pre>
+        <ul>
+            <li>Chama `mp.get_prometheus_graph` para obter os dados de comunicação do Prometheus.</li>
+            <li>Itera sobre os resultados da consulta do grafo.</li>
+            <li>Extrai os workloads de origem e destino, ignorando 'unknown' ou 'loadgenerator'.</li>
+            <li>Para cada ponto de dados (timestamp, valor), adiciona uma entrada à lista `graph_df`.</li>
+            <li>Cria um DataFrame Pandas a partir da lista e filtra para incluir apenas timestamps que também estão presentes no DataFrame de nós.</li>
+            <li>Define o timestamp como índice e garante que a coluna 'value' seja do tipo float.</li>
+        </ul>
+
+        <h3>3.6. Salvamento de Dados Processados</h3>
+        <pre><code>
+node_df = node_df.sort_values("timestamp")
+graph_df = graph_df.sort_values("timestamp")
+
+node_df.to_csv(os.path.join(OUTPUT_DIR, "pod_metrics.csv"))
+graph_df.to_csv(os.path.join(OUTPUT_DIR, "pod_requests.csv"))
+        </code></pre>
+        <ul>
+            <li>Ordena ambos os DataFrames (nós e grafo) pelo timestamp.</li>
+            <li>Salva os DataFrames processados em arquivos CSV (`pod_metrics.csv` e `pod_requests.csv`) no `OUTPUT_DIR`.</li>
+        </ul>
+
+        <h3>3.7. Geração de Datasets de Features e Targets (NPZ)</h3>
+        <p>Esta seção prepara os dados para o formato de entrada esperado por modelos de previsão de séries temporais, criando sequências de "janelas" de tempo e seus alvos correspondentes.</p>
+        <h4>3.7.1. Features de Nós (`node_features.npz`)</h4>
+        <pre><code>
+print("Gerando dataset de features de nós (pods)...")
+X_node = []
+y_node = []
+for i in tqdm(range(WINDOW_SIZE, len(node_df) - HORIZONT + 1)):
+    node_window = node_df.iloc[i - WINDOW_SIZE: i]
+    node_horizont = node_df.iloc[i + HORIZONT - 1]
+
+    x, y = [], []
+    for (_, pod_name) in pod_info:
+        x.append(node_window[[f"{pod_name}-cpu", f"{pod_name}-mem"]].to_numpy())
+        y.append(node_horizont[[f"{pod_name}-cpu", f"{pod_name}-mem"]].to_numpy())
+
+    X_node.append(np.array(x).swapaxes(0, 1))
+    y_node.append(np.array(y))
+
+X_node = np.array(X_node)
+y_node = np.array(y_node)
+np.savez(os.path.join(OUTPUT_DIR, "node_features.npz"), X=X_node, y=y_node)
+print("Shape do dataset de nós: X =", X_node.shape, ", y =", y_node.shape)
+        </code></pre>
+        <ul>
+            <li>Itera através do DataFrame de nós para criar janelas de tempo.</li>
+            <li>Para cada iteração:
+                <ul>
+                    <li>`node_window`: Extrai uma janela de `WINDOW_SIZE` passos de tempo anteriores.</li>
+                    <li>`node_horizont`: Extrai o valor do nó no horizonte de predição (`HORIZONT` passos à frente do final da janela).</li>
+                    <li>Para cada pod, extrai seus dados de CPU e memória para a janela e o horizonte.</li>
+                </ul>
+            </li>
+            <li>Converte as listas de janelas e alvos em arrays NumPy e os anexa a `X_node` e `y_node`.</li>
+            <li>Salva `X_node` (features) e `y_node` (alvos) em um arquivo `.npz` chamado `node_features.npz`.</li>
+            <li>Imprime as dimensões dos arrays `X` e `y`.</li>
+        </ul>
+
+        <h4>3.7.2. Features de Arestas (`edge_features.npz`)</h4>
+        <pre><code>
+print("Gerando dataset de arestas (comunicação entre pods)...")
+edge_timed = graph_df.groupby("timestamp")
+A_graph = []
+graph = []
+for k in tqdm(range(len(node_df) - HORIZONT)):
+    node = node_df.iloc[k]
+    edges_info = edge_timed.get_group(node.name)
+    A = np.zeros((len(pod_info), len(pod_info)))
+    for i in range(len(pod_info)):
+        for j in range(len(pod_info)):
+            from_pod = pod_info[i][1]
+            to_pod = pod_info[j][1]
+            query = edges_info.query("`from` == @from_pod and `to` == @to_pod")
+            if len(query) > 0:
+                A[i, j] = query["value"].item()
+    graph.append(A)
+    if len(graph) == WINDOW_SIZE:
+        A_graph.append(graph)
+        graph = graph[1:]
+
+A_graph = np.array(A_graph)
+np.savez(os.path.join(OUTPUT_DIR, "edge_features.npz"), A=A_graph)
+print("Shape do dataset de arestas:", A_graph.shape)
+        </code></pre>
+        <ul>
+            <li>Agrupa o DataFrame de arestas por timestamp para facilitar o acesso aos dados do grafo em cada ponto no tempo.</li>
+            <li>Itera através dos timestamps do DataFrame de nós (com ajuste para o horizonte de predição).</li>
+            <li>Para cada timestamp:
+                <ul>
+                    <li>Inicializa uma matriz de adjacência `A` (zeros) do tamanho `(número de pods) x (número de pods)`.</li>
+                    <li>Preenche `A` com os valores de requisição entre os pods, baseando-se nas informações das arestas para o timestamp atual.</li>
+                </ul>
+            </li>
+            <li>Acumula as matrizes `A` em uma lista `graph` até que `WINDOW_SIZE` matrizes sejam coletadas.</li>
+            <li>Quando a janela (`graph`) está completa, ela é adicionada a `A_graph`, e a matriz mais antiga é removida de `graph` para deslizar a janela.</li>
+            <li>Salva `A_graph` (as sequências de matrizes de adjacência) em um arquivo `.npz` chamado `edge_features.npz`.</li>
+            <li>Imprime as dimensões do array `A_graph`.</li>
+        </ul>
+    </div>
+</body>
+</html>

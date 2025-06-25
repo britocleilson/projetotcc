@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documentação do Código search.py</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+            color: #333;
+        }
+        .container {
+            max-width: 900px;
+            margin: auto;
+            background: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        h1, h2, h3 {
+            color: #0056b3;
+        }
+        pre {
+            background: #eee;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        code {
+            font-family: "Courier New", Courier, monospace;
+        }
+        .citation {
+            font-size: 0.9em;
+            color: #555;
+            margin-left: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Documentação do Código `search.py`</h1>
+        <p>O script `search.py` é responsável por realizar a busca de hiperparâmetros para diferentes modelos de previsão (A3TGCN, TemporalFusionTransformer e RecurrentNetwork) usando a biblioteca Optuna. Ele otimiza parâmetros para prever o uso de recursos de pods em um ambiente Kubernetes.</p>
+
+        <h2>1. Importações</h2>
+        <p>O script começa importando as bibliotecas essenciais para suas operações:</p>
+        <ul>
+            <li><code>Path</code> da `pathlib`: Para manipulação de caminhos de arquivos e diretórios.</li>
+            <li><code>BaseModel</code> da `pytorch_forecasting.models.base_model`: Classe base para modelos do PyTorch Forecasting (comentado no código, mas indica uma possível extensão).</li>
+            <li><code>RangerAdaBelief</code> da `ranger_adabelief`: Um otimizador (comentado no código, mas indica uma possível extensão).</li>
+            <li><code>numpy</code> as <code>np</code>: Para operações numéricas, especialmente com arrays.</li>
+            <li><code>pandas</code> as <code>pd</code>: Para manipulação e análise de dados tabulares (DataFrames).</li>
+            <li><code>torch</code>: A biblioteca principal do PyTorch para construção e treinamento de redes neurais.</li>
+            <li><code>torch.nn.functional</code> as <code>F</code>: Contém funções sem estado que são frequentemente usadas em modelos de rede neural.</li>
+            <li><code>dense_to_sparse</code> da `torch_geometric.utils`: Utilitário para converter matrizes de adjacência densas em representações esparsas.</li>
+            <li><code>DynamicGraphTemporalSignal</code> da `torch_geometric_temporal`: Classe para representar sinais temporais de grafos dinâmicos.</li>
+            <li><code>A3TGCN</code> da `torch_geometric_temporal.nn.recurrent`: A camada A3TGCN (Attention Temporal Graph Convolutional Network).</li>
+            <li><code>temporal_signal_split</code> da `torch_geometric_temporal.signal`: Utilitário para dividir conjuntos de dados temporais de grafos.</li>
+            <li><code>TemporalFusionTransformer</code>, <code>TimeSeriesDataSet</code>, <code>RecurrentNetwork</code> da `pytorch_forecasting`: Modelos e classes utilitárias para previsão de séries temporais.</li>
+            <li><code>QuantileLoss</code> da `pytorch_forecasting.metrics`: Métrica de perda para previsão de quantis.</li>
+            <li><code>lightning.pytorch</code> as <code>pl</code>: PyTorch Lightning para simplificar o treinamento de modelos PyTorch.</li>
+            <li><code>torchmetrics</code>: Biblioteca para métricas de PyTorch.</li>
+            <li><code>optuna</code>: Biblioteca para otimização de hiperparâmetros automática.</li>
+            <li><code>ArgumentParser</code> da `argparse`: Para analisar argumentos da linha de comando.</li>
+            <li><code>partial</code> da `functools`: Para criar funções parciais.</li>
+            <li><code>os</code>: Para interações com o sistema operacional, como manipulação de diretórios.</li>
+        </ul>
+
+        <h2>2. Definição do Modelo <code>KubernetesA3TGCN</code></h2>
+        <p>Esta classe define a arquitetura do modelo A3TGCN utilizada para previsão.</p>
+        <pre><code>
+class KubernetesA3TGCN(torch.nn.Module):
+    def __init__(self, dim_in, hidde_channels, periods):
+        super().__init__()
+        self.tgnn = A3TGCN(in_channels=dim_in, out_channels=hidde_channels, periods=periods)
+        self.linear = torch.nn.Linear(hidde_channels, periods)
+
+    def forward(self, x, edge_index, edge_attr):
+        h = self.tgnn(x, edge_index, edge_attr)
+        h = F.relu(h)
+        h = self.linear(h)
+        return h
+        </code></pre>
+        <ul>
+            <li>**<code>__init__(self, dim_in, hidde_channels, periods)</code>**:
+                <ul>
+                    <li>Inicializa o modelo herdando de <code>torch.nn.Module</code>.</li>
+                    <li><code>dim_in</code>: Dimensão de entrada dos features do nó.</li>
+                    <li><code>hidde_channels</code>: Número de canais ocultos na camada A3TGCN.</li>
+                    <li><code>periods</code>: Número de períodos a serem previstos (horizonte de previsão).</li>
+                    <li><code>self.tgnn</code>: Uma camada A3TGCN com canais de entrada, canais de saída ocultos e número de períodos.</li>
+                    <li><code>self.linear</code>: Uma camada linear que mapeia a saída dos canais ocultos para o número de períodos de previsão.</li>
+                </ul>
+            </li>
+            <li>**<code>forward(self, x, edge_index, edge_attr)</code>**:
+                <ul>
+                    <li>Define a passagem para frente do modelo.</li>
+                    <li><code>x</code>: Features dos nós.</li>
+                    <li><code>edge_index</code>: Índices das arestas do grafo.</li>
+                    <li><code>edge_attr</code>: Atributos das arestas (pesos).</li>
+                    <li>A entrada é passada pela camada A3TGCN, seguida por uma ativação ReLU e uma camada linear para a previsão final.</li>
+                </ul>
+            </li>
+        </ul>
+
+        <h2>3. Função <code>create_dataset()</code></h2>
+        <p>Esta função prepara os dados de features de nós, matrizes de adjacência e rótulos para o formato <code>DynamicGraphTemporalSignal</code>, exigido pelas bibliotecas de grafos temporais.</p>
+        <pre><code>
+def create_dataset(node_feats, adjacency_mat, labels, resource):
+    edge_indices = []
+    edge_weights = []
+    features = []
+    targets = []
+
+    for i in range(len(node_feats)):
+        indices, weights = dense_to_sparse(torch.from_numpy(adjacency_mat[i].mean(axis=0)))
+        feature = node_feats[i, ..., resource].swapaxes(0, 1)
+        target = labels[i, ..., resource]
+
+        edge_indices.append(indices.numpy())
+        edge_weights.append(weights.numpy())
+        features.append(feature)
+        targets.append(target)
+
+    return DynamicGraphTemporalSignal(edge_indices, edge_weights, features, targets)
+        </code></pre>
+        <ul>
+            <li>Itera sobre os passos de tempo dos dados.</li>
+            <li>Para cada passo de tempo, converte a matriz de adjacência densa (média do eixo 0, indicando agregação se houver múltiplas) para o formato esparso (índices e pesos de arestas).</li>
+            <li>Extrai as características do nó e os valores alvo para o recurso específico.</li>
+            <li>As características são transpostas (<code>swapaxes(0, 1)</code>) para corresponder ao formato esperado de entrada do modelo.</li>
+            <li>Armazena os índices das arestas, pesos das arestas, features e alvos em listas.</li>
+            <li>Retorna um objeto <code>DynamicGraphTemporalSignal</code> com os dados processados.</li>
+        </ul>
+
+        <h2>4. Função <code>train()</code></h2>
+        <p>Define o ciclo de treinamento para o modelo A3TGCN.</p>
+        <pre><code>
+def train(model, train_dataset, learning_rate):
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    model.train()
+    for epoch in range(150):
+        loss = 0
+        step = 0
+        for i, snapshot in enumerate(train_dataset):
+            y_pred = model(snapshot.x.unsqueeze(2), snapshot.edge_index, snapshot.edge_attr)
+            loss += torch.mean((y_pred - snapshot.y) ** 2)
+            step += 1
+        loss /= (step + 1)
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+        </code></pre>
+        <ul>
+            <li>Inicializa o otimizador Adam com a taxa de aprendizado fornecida.</li>
+            <li>Define o modelo para o modo de treinamento (<code>model.train()</code>).</li>
+            <li>Executa 150 épocas de treinamento.</li>
+            <li>Em cada época, itera sobre os instantâneos (snapshots) do conjunto de dados de treinamento.</li>
+            <li>Calcula as previsões, a perda MSE, realiza a retropropagação, atualiza os pesos do modelo e zera os gradientes.</li>
+        </ul>
+
+        <h2>5. Função <code>test()</code></h2>
+        <p>Define o ciclo de teste/avaliação para o modelo A3TGCN.</p>
+        <pre><code>
+def test(model, test_dataset):
+    model.eval()
+    loss = 0
+    step = 0
+    for i, snapshot in enumerate(test_dataset):
+        y_pred = model(snapshot.x.unsqueeze(2), snapshot.edge_index, snapshot.edge_attr)
+        loss += torch.mean((y_pred - snapshot.y) ** 2)
+        step += 1
+    loss /= (step + 1)
+    return loss
+        </code></pre>
+        <ul>
+            <li>Define o modelo para o modo de avaliação (<code>model.eval()</code>).</li>
+            <li>Itera sobre os instantâneos do conjunto de dados de teste.</li>
+            <li>Calcula as previsões e a perda MSE.</li>
+            <li>Retorna a perda MSE média no conjunto de teste.</li>
+        </ul>
+
+        <h2>6. Função <code>objective_astgcn()</code></h2>
+        <p>Esta função é o objetivo de otimização para o modelo A3TGCN, usado pelo Optuna.</p>
+        <pre><code>
+def objective_astgcn(trial, resource):
+    hidden_dim = trial.suggest_int('hidden_dim', 4, 128)
+    learning_rate = trial.suggest_float('learning_rate', 0.01, 0.5)
+
+    node_features = np.load("data/hyper/train/node_features.npz")
+    edge_features = np.load("data/hyper/train/edge_features.npz")
+    X, y = node_features["X"], node_features["y"]
+    A = edge_features["A"]
+    k8s_dataset = create_dataset(X, A, y, resource)
+    train_dataset, test_dataset = temporal_signal_split(k8s_dataset, train_ratio=0.8)
+
+    model = KubernetesA3TGCN(12, hidden_dim, 1).to("cpu")
+    train(model, train_dataset, learning_rate)
+    return test(model, test_dataset)
+        </code></pre>
+        <ul>
+            <li>Sugere hiperparâmetros para <code>hidden_dim</code> (dimensão oculta) e <code>learning_rate</code> (taxa de aprendizado).</li>
+            <li>Carrega os dados de features de nós e arestas.</li>
+            <li>Cria o conjunto de dados <code>DynamicGraphTemporalSignal</code> e o divide em treinamento e teste.</li>
+            <li>Inicializa o modelo <code>KubernetesA3TGCN</code> e o move para a CPU.</li>
+            <li>Chama a função <code>train</code> para treinar o modelo.</li>
+            <li>Retorna o resultado da função <code>test</code> (perda MSE no conjunto de teste).</li>
+        </ul>
+
+        <h2>7. Função <code>get_data_from_csv()</code></h2>
+        <p>Prepara os dados do CSV para serem usados pelos modelos TemporalFusionTransformer (TFT) e RecurrentNetwork (LSTM/GRU).</p>
+        <pre><code>
+def get_data_from_csv(resource):
+    data = pd.read_csv("data/hyper/train/pod_metrics.csv")
+    data["group"] = 0
+    data["time_idx"] = data["timestamp"].argsort()
+
+    drop_names = []
+    for name in data.columns.values:
+        if name.endswith("mem" if resource == 0 else "cpu"):
+            drop_names.append(name)
+    data = data.drop(columns=drop_names)
+    targets = list(data.columns.values)
+    targets.remove("timestamp")
+    targets.remove("group")
+    targets.remove("time_idx")
+
+    training = TimeSeriesDataSet(
+        data,
+        time_idx="time_idx",
+        target=targets,
+        group_ids=["group"],
+        max_encoder_length=12,
+        max_prediction_length=1,
+        static_reals=["group"],
+        time_varying_known_reals=["timestamp", "time_idx"],
+        time_varying_unknown_reals=targets
+    )
+
+    validation = TimeSeriesDataSet.from_dataset(training, data, predict=True, stop_randomization=True)
+    train_dataloader = training.to_dataloader(train=True, num_workers=11, batch_size=128)
+    val_dataloader = validation.to_dataloader(train=False, num_workers=11, batch_size=128)
+
+    return training, train_dataloader, val_dataloader
+        </code></pre>
+        <ul>
+            <li>Carrega os dados de métricas de pod de um arquivo CSV.</li>
+            <li>Adiciona colunas "group" e "time_idx" necessárias para <code>TimeSeriesDataSet</code>.</li>
+            <li>Remove colunas de métricas de memória ou CPU que não são relevantes para o recurso atual.</li>
+            <li>Identifica as colunas alvo de previsão.</li>
+            <li>Cria instâncias de <code>TimeSeriesDataSet</code> para treinamento e validação, configurando parâmetros como <code>max_encoder_length</code> e <code>max_prediction_length</code>.</li>
+            <li>Gera os <code>DataLoader</code> para treinamento e validação.</li>
+            <li>Retorna o conjunto de dados de treinamento, o dataloader de treinamento e o dataloader de validação.</li>
+        </ul>
+
+        <h2>8. Função <code>get_tft()</code></h2>
+        <p>Cria e configura uma instância do modelo TemporalFusionTransformer.</p>
+        <pre><code>
+def get_tft(trial, training):
+    learning_rate = trial.suggest_float('learning_rate', 0.01, 0.5)
+    lstm_layers = trial.suggest_int("lstm_layers", 1, 5)
+    hidden_size = trial.suggest_int("hidden_size", 8, 512)
+    attention_head_size = trial.suggest_int("attention_head_size", 1, 10)
+    dropout = trial.suggest_float("dropout", 0.1, 0.8)
+    hidden_continuous_size = trial.suggest_int("hidden_continuous_size", 4, 32)
+
+    #BaseModel.register_optimizer("Ranger", RangerAdaBelief)
+
+    return TemporalFusionTransformer.from_dataset(
+        training,
+        learning_rate=learning_rate,
+        lstm_layers=lstm_layers,
+        hidden_size=hidden_size,
+        attention_head_size=attention_head_size,
+        dropout=dropout,
+        hidden_continuous_size=hidden_continuous_size,
+        loss=QuantileLoss(),
+        optimizer="Adam",
+        reduce_on_plateau_patience=4,
+    )
+        </code></pre>
+        <ul>
+            <li>Sugere hiperparâmetros para taxa de aprendizado, número de camadas LSTM, tamanho oculto, tamanho da cabeça de atenção, dropout e tamanho contínuo oculto.</li>
+            <li>Retorna uma instância de <code>TemporalFusionTransformer</code> configurada a partir do conjunto de dados de treinamento e dos hiperparâmetros sugeridos.</li>
+        </ul>
+
+        <h2>9. Função <code>get_lstm()</code></h2>
+        <p>Cria e configura uma instância do modelo RecurrentNetwork (LSTM ou GRU).</p>
+        <pre><code>
+def get_lstm(trial, training):
+    hidden_size = trial.suggest_int("hidden_size", 8, 512)
+    dropout = trial.suggest_float("dropout", 0.1, 0.8)
+    rnn_layers = trial.suggest_int("lstm_layers", 1, 10)
+    cell_type = trial.suggest_categorical("cell_type", ["LSTM", "GRU"])
+
+    return RecurrentNetwork.from_dataset(
+        training,
+        dropout=dropout,
+        hidden_size=hidden_size,
+        rnn_layers=rnn_layers,
+        cell_type=cell_type
+    )
+        </code></pre>
+        <ul>
+            <li>Sugere hiperparâmetros para tamanho oculto, dropout, número de camadas RNN e tipo de célula (LSTM ou GRU).</li>
+            <li>Retorna uma instância de <code>RecurrentNetwork</code> configurada a partir do conjunto de dados de treinamento e dos hiperparâmetros sugeridos.</li>
+        </ul>
+
+        <h2>10. Função <code>objective_recurrent()</code></h2>
+        <p>Esta função é o objetivo de otimização para os modelos recorrentes (TFT e RNN), usado pelo Optuna.</p>
+        <pre><code>
+def objective_recurrent(trial, architecture, resource):
+    training, train_dataloader, val_dataloader = get_data_from_csv(resource)
+    if architecture == "tft":
+        model = get_tft(trial, training)
+    elif architecture == "rnn":
+        model = get_lstm(trial, training)
+    else:
+        raise ValueError(f"Unknown architecture: {architecture}")
+
+    gradient_clip_val = trial.suggest_float("gradient_clip_val", 0.01, 100.0)
+    trainer = pl.Trainer(
+        max_epochs=100,
+        #accelerator="cuda",
+        accelerator="cpu",
+        enable_model_summary=True,
+        gradient_clip_val=gradient_clip_val,
+        limit_train_batches=50,
+    )
+    trainer.fit(
+        model,
+        train_dataloaders=train_dataloader,
+        val_dataloaders=val_dataloader,
+    )
+
+    #mse = torchmetrics.regression.MeanSquaredError().to("cuda")
+    mse = torchmetrics.regression.MeanSquaredError().to("cpu")
+    predictions = model.predict(val_dataloader, return_y=True)
+    return mse(torch.cat(predictions.output), torch.cat(predictions.y[0]))
+        </code></pre>
+        <ul>
+            <li>Obtém os dataloaders a partir dos dados CSV.</li>
+            <li>Com base na arquitetura especificada ("tft" ou "rnn"), obtém o modelo apropriado.</li>
+            <li>Sugere um valor para <code>gradient_clip_val</code>.</li>
+            <li>Inicializa um <code>pl.Trainer</code> (PyTorch Lightning Trainer) com configurações como número máximo de épocas, acelerador (CPU neste caso), e <code>gradient_clip_val</code>.</li>
+            <li>Treina o modelo usando o trainer e os dataloaders.</li>
+            <li>Calcula o erro médio quadrático (MSE) no conjunto de validação usando <code>torchmetrics</code>.</li>
+            <li>Retorna o valor do MSE.</li>
+        </ul>
+
+        <h2>11. Bloco de Execução Principal (<code>if __name__ == "__main__":</code>)</h2>
+        <p>Este bloco controla a execução principal do script, incluindo a configuração do Optuna e o início da busca de hiperparâmetros.</p>
+        <pre><code>
+if __name__ == "__main__":
+    # Criando o diretório para o DB
+    os.makedirs("pycache", exist_ok=True)
+
+    Path("pycache").mkdir(parents=True, exist_ok=True)
+    DB_PATH = os.path.abspath("pycache/hypertunning.db")
+
+    parser = ArgumentParser("Hyperparameter Search")
+    parser.add_argument("--model", type=str, help="Model to tune hyperparameters")
+    parser.add_argument("--trials", type=int, default=50, help="Number of trials")
+    parser.add_argument("--resource", type=int, default=0, help="Resource to predict")
+    parser.add_argument("--study-name", type=str, help="Experiment's name for Optuna")
+    args = parser.parse_args()
+
+    try:
+        study = optuna.create_study(
+            storage=f"sqlite:///{DB_PATH}",
+            study_name=args.study_name
+        )
+    except optuna.exceptions.DuplicatedStudyError:
+        # print(type(e))
+        study = optuna.load_study(
+            storage=f"sqlite:///{DB_PATH}",
+            study_name=args.study_name
+        )
+
+    if args.model == "gcn":
+        objective = partial(objective_astgcn, resource=args.resource)
+    elif args.model == "tft" or args.model == "rnn":
+        objective = partial(objective_recurrent, architecture=args.model, resource=args.resource)
+    else:
+        raise ValueError(f"Objective {args.model} not valid")
+
+    study.optimize(objective, n_trials=args.trials)
+    print(study.best_params)
+        </code></pre>
+        <ul>
+            <li>**Configuração do Diretório e DB**:
+                <ul>
+                    <li>Cria o diretório "pycache" se ele não existir, para armazenar o banco de dados do Optuna.</li>
+                    <li>Define o caminho absoluto para o arquivo do banco de dados SQLite.</li>
+                </ul>
+            </li>
+            <li>**Análise de Argumentos de Linha de Comando**:
+                <ul>
+                    <li><code>--model</code>: Especifica qual modelo (gcn, tft, rnn) terá os hiperparâmetros ajustados.</li>
+                    <li><code>--trials</code>: Número de tentativas de otimização que o Optuna deve executar.</li>
+                    <li><code>--resource</code>: O ID do recurso a ser previsto (0 para memória, 1 para CPU).</li>
+                    <li><code>--study-name</code>: Nome do estudo Optuna, permitindo retomar estudos anteriores.</li>
+                </ul>
+            </li>
+            <li>**Criação/Carregamento do Estudo Optuna**:
+                <ul>
+                    <li>Tenta criar um novo estudo Optuna com o nome e armazenamento SQLite especificados.</li>
+                    <li>Se um estudo com o mesmo nome já existir (<code>DuplicatedStudyError</code>), ele é carregado.</li>
+                </ul>
+            </li>
+            <li>**Definição do Objetivo de Otimização**:
+                <ul>
+                    <li>Baseado no argumento <code>--model</code>, define a função objetivo apropriada (<code>objective_astgcn</code> para "gcn" ou <code>objective_recurrent</code> para "tft"/"rnn").</li>
+                    <li><code>partial</code> é usado para "congelar" os argumentos <code>resource</code> e <code>architecture</code>.</li>
+                    <li>Se o modelo não for válido, levanta um erro.</li>
+                </ul>
+            </li>
+            <li>**Otimização do Estudo**:
+                <ul>
+                    <li><code>study.optimize(objective, n_trials=args.trials)</code>: Inicia o processo de otimização de hiperparâmetros, executando a função objetivo por `n_trials` vezes.</li>
+                </ul>
+            </li>
+            <li>**Resultados**:
+                <ul>
+                    <li><code>print(study.best_params)</code>: Após a otimização, imprime os melhores hiperparâmetros encontrados.</li>
+                </ul>
+            </li>
+        </ul>
+        <p>Em resumo, este script fornece uma estrutura para otimização de hiperparâmetros de modelos de previsão de séries temporais (A3TGCN, TFT, LSTM/GRU) para dados de recursos do Kubernetes, utilizando Optuna para gerenciar os experimentos e encontrar os melhores conjuntos de parâmetros.</p>
+    </div>
+</body>
+</html>

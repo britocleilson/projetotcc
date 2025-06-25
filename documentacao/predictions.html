@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documentação do Código predictions.py</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+            color: #333;
+        }
+        .container {
+            max-width: 900px;
+            margin: auto;
+            background: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        h1, h2, h3 {
+            color: #0056b3;
+        }
+        pre {
+            background: #eee;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        code {
+            font-family: "Courier New", Courier, monospace;
+        }
+        .citation {
+            font-size: 0.9em;
+            color: #555;
+            margin-left: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Documentação do Código `predictions.py`</h1>
+        <p>O script `predictions.py` é responsável por carregar modelos de previsão pré-treinados (A3TGCN, TemporalFusionTransformer e RecurrentNetwork), realizar previsões em um conjunto de dados de teste do Kubernetes e avaliar o desempenho de cada modelo usando métricas como MSE (Mean Squared Error) e MAPE (Mean Absolute Percentage Error). Além disso, ele gera gráficos para visualizar as previsões dos modelos em relação aos valores reais.</p>
+
+        <h2>1. Importações</h2>
+        <p>O script importa as seguintes bibliotecas:</p>
+        <ul>
+            <li><code>sys</code>: Fornece acesso a variáveis e funções que interagem fortemente com o interpretador.</li>
+            <li><code>numpy</code> as <code>np</code>: Para operações numéricas com arrays.</li>
+            <li><code>torch</code>: A biblioteca PyTorch para computação com tensores e operações de modelos.</li>
+            <li><code>matplotlib.pyplot</code> as <code>plt</code>: Para a criação de gráficos e visualização de dados.</li>
+            <li><code>TemporalFusionTransformer</code>, <code>RecurrentNetwork</code> da `pytorch_forecasting`: Classes para carregar os modelos TFT e RNN pré-treinados.</li>
+            <li><code>pandas</code> as <code>pd</code>: Para manipulação de dados (embora não explicitamente usado diretamente no corpo principal do script, pode ser usado pelas funções importadas).</li>
+            <li><code>KubernetesA3TGCN</code>, <code>create_dataset</code> da `a3tgcn`: Importa a definição do modelo A3TGCN e a função para criar o conjunto de dados para A3TGCN.</li>
+            <li><code>get_dataset</code> da `recurrent`: Importa a função para carregar e preparar o conjunto de dados para os modelos recorrentes (TFT e RNN).</li>
+        </ul>
+
+        <h2>2. Carregamento e Avaliação do Modelo A3TGCN</h2>
+        <p>Esta seção carrega o modelo A3TGCN pré-treinado, realiza previsões e calcula métricas de desempenho.</p>
+        <pre><code>
+a3tgcn = KubernetesA3TGCN(12, 116, 1)
+a3tgcn.load_state_dict(torch.load("./modelos_treinados/a3tgcn.pt"))
+
+a3tgcn.to("cpu")
+print(sum(p.numel() for p in a3tgcn.parameters()), "parameters")
+
+node_features = np.load("./data/hyper/test/node_features.npz")
+edge_features = np.load("./data/hyper/test/edge_features.npz")
+
+X, y = node_features["X"], node_features["y"]
+A = edge_features["A"]
+
+k8s_dataset = create_dataset(X, A, y, 1)
+
+y_a3tgcn = []
+p_a3tgcn = []
+for (x, edge_index, edge_attr, y) in k8s_dataset:
+    y_a3tgcn.append(y[1].numpy())
+    p_a3tgcn.append(
+        a3tgcn(x[1].unsqueeze(2), edge_index[1], edge_attr[1]).detach().numpy().ravel()
+    )
+y_a3tgcn = np.vstack(y_a3tgcn)
+p_a3tgcn = np.vstack(p_a3tgcn)
+
+print("A3TGCN mse:", np.mean((y_a3tgcn - p_a3tgcn) ** 2))
+print("A3TGCN mape:", np.mean(np.abs((y_a3tgcn - p_a3tgcn) / y_a3tgcn)))
+
+print("MSE by pod:", np.mean((y_a3tgcn - p_a3tgcn) ** 2, axis=0))
+print("MAPE by pod:", np.mean(np.abs((y_a3tgcn - p_a3tgcn) / y_a3tgcn), axis=0))
+        </code></pre>
+        <ul>
+            <li>**Carregamento do Modelo**: Uma instância de `KubernetesA3TGCN` é criada com os mesmos parâmetros usados no treinamento (12 lags, 116 canais ocultos, 1 período de previsão). Em seguida, o estado do modelo é carregado a partir do arquivo `./modelos_treinados/a3tgcn.pt`.</li>
+            <li>**Configuração do Dispositivo**: O modelo é movido para a CPU para inferência.</li>
+            <li>**Contagem de Parâmetros**: Imprime o número total de parâmetros no modelo A3TGCN.</li>
+            <li>**Carregamento do Conjunto de Teste**: Os dados de features de nós (`node_features.npz`) e features de arestas (`edge_features.npz`) do conjunto de teste são carregados.</li>
+            <li>**Criação do Dataset**: A função `create_dataset` é usada para formatar os dados de teste para o A3TGCN, com `resource=1` (o que provavelmente indica CPU, assumindo 0 é memória).</li>
+            <li>**Realização de Previsões**:
+                <ul>
+                    <li>Um loop itera sobre cada "snapshot" (passo de tempo) no `k8s_dataset`.</li>
+                    <li>Para cada snapshot, o valor real do alvo (`y`) e a previsão do modelo (`p`) são coletados. Nota-se que `y[1]` e `x[1]` estão sendo acessados, o que pode indicar que o modelo está sendo avaliado para o segundo pod ou uma dimensão específica.</li>
+                    <li>As previsões e os valores reais são empilhados em arrays NumPy.</li>
+                </ul>
+            </li>
+            <li>**Cálculo de Métricas**: O script calcula e imprime o MSE e o MAPE globais para o modelo A3TGCN. Ele também calcula e imprime o MSE e o MAPE por pod, para uma avaliação mais granular.</li>
+        </ul>
+
+        <h2>3. Carregamento e Avaliação do Modelo Temporal-Fusion Transformer (TFT)</h2>
+        <p>Esta seção segue um processo similar ao A3TGCN para o modelo TFT.</p>
+        <pre><code>
+## Temporal-Fusion Transformer
+tft = TemporalFusionTransformer.load_from_checkpoint("./modelos_treinados/tft.ckpt")
+tft.eval()
+print(sum(p.numel() for p in tft.parameters()), "parameters")
+
+recurrent_dataset, _ = get_dataset("./data/hyper/test/", 1, 12)
+dataloader = recurrent_dataset.to_dataloader(train=False, batch_size=1)
+
+tft_predictions = tft.predict(dataloader, return_y=True)
+
+p_tft = torch.cat(tft_predictions.output, axis=1).swapaxes(0, 1).cpu().detach().numpy()
+y_tft = torch.cat(tft_predictions.y[0]).cpu().detach().numpy()
+
+print("TFT mse:", np.mean((y_tft - p_tft) ** 2))
+print("TFT mape:", np.mean(np.abs((y_tft - p_tft) / y_tft)))
+
+print("MSE by pod:", np.mean((y_tft - p_tft) ** 2, axis=1))
+print("MAPE by pod:", np.mean(np.abs((y_tft - p_tft) / y_tft), axis=1))
+        </code></pre>
+        <ul>
+            <li>**Carregamento do Modelo**: O modelo TFT é carregado a partir do checkpoint `./modelos_treinados/tft.ckpt`.</li>
+            <li>**Modo de Avaliação**: O modelo é configurado para o modo de avaliação (<code>tft.eval()</code>).</li>
+            <li>**Contagem de Parâmetros**: Imprime o número total de parâmetros no modelo TFT.</li>
+            <li>**Preparação do Dataset**: A função `get_dataset` (do `recurrent.py`) é usada para preparar os dados de teste para o TFT, também com `resource_id=1` e `lags=12`. Um `dataloader` é criado com `batch_size=1` para processamento individual das séries.</li>
+            <li>**Realização de Previsões**: O método `tft.predict` é chamado para gerar as previsões no `dataloader` de teste, retornando também os valores reais (`return_y=True`).</li>
+            <li>**Processamento das Saídas**: As previsões e os valores reais são concatenados, transpostos (<code>swapaxes(0, 1)</code>) e convertidos para arrays NumPy na CPU.</li>
+            <li>**Cálculo de Métricas**: Calcula e imprime o MSE e o MAPE globais e por pod para o modelo TFT.</li>
+        </ul>
+
+        <h2>4. Carregamento e Avaliação do Modelo RecurrentNetwork (RNN)</h2>
+        <p>Esta seção repete o processo para o modelo RNN (especificamente LSTM, dado o nome do arquivo).</p>
+        <pre><code>
+## RNN
+rnn = RecurrentNetwork.load_from_checkpoint("./modelos_treinados/recurrent_lstm.ckpt")
+rnn.eval()
+print(sum(p.numel() for p in rnn.parameters()), "parameters")
+
+rnn_predictions = rnn.predict(dataloader, return_y=True)
+
+p_rnn = torch.cat(rnn_predictions.output, axis=1).swapaxes(0, 1).cpu().detach().numpy()
+y_rnn = torch.cat(rnn_predictions.y[0]).cpu().detach().numpy()
+print("RNN mse:", np.mean((y_rnn - p_rnn) ** 2))
+print("RNN mape:", np.mean(np.abs((y_rnn - p_rnn) / y_rnn)))
+
+print("MSE by pod:", np.mean((y_rnn - p_rnn) ** 2, axis=1))
+print("MAPE by pod:", np.mean(np.abs((y_rnn - p_rnn) / y_rnn), axis=1))
+
+np.mean((y_rnn - p_rnn) ** 2, axis=1).argmax()
+        </code></pre>
+        <ul>
+            <li>**Carregamento do Modelo**: O modelo RNN é carregado a partir do checkpoint `./modelos_treinados/recurrent_lstm.ckpt`.</li>
+            <li>**Modo de Avaliação**: O modelo é configurado para o modo de avaliação (<code>rnn.eval()</code>).</li>
+            <li>**Contagem de Parâmetros**: Imprime o número total de parâmetros no modelo RNN.</li>
+            <li>**Realização de Previsões**: O método `rnn.predict` é chamado para gerar as previsões no mesmo `dataloader` usado para o TFT.</li>
+            <li>**Processamento das Saídas**: As previsões e os valores reais são concatenados, transpostos e convertidos para arrays NumPy na CPU.</li>
+            <li>**Cálculo de Métricas**: Calcula e imprime o MSE e o MAPE globais e por pod para o modelo RNN.</li>
+            <li><code>np.mean((y_rnn - p_rnn) ** 2, axis=1).argmax()</code>: Calcula o MSE por pod e encontra o índice do pod com o maior MSE, o que pode ser útil para identificar o pod mais difícil de prever.</li>
+        </ul>
+
+        <h2>5. Geração de Gráficos de Previsão</h2>
+        <p>Esta seção do script é responsável por criar e salvar visualizações das previsões dos modelos.</p>
+        <pre><code>
+###Plots
+
+fig, axs = plt.subplots(2, 3, figsize=(15, 8), sharex=True)
+color_cycle = plt.rcParams['axes.prop_cycle']()
+
+labels = ["A3TGCN", "TFT", "RNN"]
+features_names = ["Redis", "Currency Service"]
+model_colors = [next(color_cycle), next(color_cycle), next(color_cycle)]
+feature_colors = [next(color_cycle), next(color_cycle)]
+
+for i, feature in enumerate([9, 3]):
+    for j, p in enumerate([p_a3tgcn.swapaxes(0, 1), p_tft, p_rnn]):
+        axs[i, j].plot(y_a3tgcn[:, feature], label=features_names[i], alpha=0.7, **feature_colors[i])
+        axs[i, j].plot(p[feature], label=labels[j], ls="dotted", **model_colors[j])
+
+legend_lines = []
+legend_labels = []
+for i in range(2):
+    legend_lines.append(axs[i, 0].get_legend_handles_labels()[0][0])
+    legend_labels.append(axs[i, 0].get_legend_handles_labels()[1][0])
+for j in range(3):
+    legend_lines.append(axs[0, j].get_legend_handles_labels()[0][1])
+    legend_labels.append(axs[0, j].get_legend_handles_labels()[1][1])
+
+fig.supxlabel("Time step (5 minutes)")
+fig.supylabel("Megabytes (normalized)", x=0.08)
+fig.legend(legend_lines, legend_labels)
+fig.savefig("./img/RAM predictions.png", dpi=300, transparent=True, bbox_inches='tight');
+        </code></pre>
+        <ul>
+            <li>**Configuração da Figura**: Cria uma figura com uma grade de 2 linhas por 3 colunas para os subplots, compartilhando o eixo x.</li>
+            <li>**Definição de Cores e Rótulos**:
+                <ul>
+                    <li><code>color_cycle</code>: Obtém o ciclo de cores padrão do Matplotlib.</li>
+                    <li><code>labels</code>: Nomes dos modelos para os rótulos do gráfico.</li>
+                    <li><code>features_names</code>: Nomes dos recursos específicos a serem plotados ("Redis" e "Currency Service").</li>
+                    <li><code>model_colors</code> e <code>feature_colors</code>: Atribui cores únicas para cada modelo e recurso.</li>
+                </ul>
+            </li>
+            <li>**Loop de Plotagem**:
+                <ul>
+                    <li>O loop externo itera sobre dois recursos específicos (identificados pelos índices 9 e 3, que correspondem a "Redis" e "Currency Service").</li>
+                    <li>O loop interno itera sobre as previsões de cada modelo (`p_a3tgcn`, `p_tft`, `p_rnn`).</li>
+                    <li>Em cada subplot, plota os valores reais do recurso e as previsões do modelo correspondente. As previsões são plotadas com estilo de linha pontilhada.</li>
+                </ul>
+            </li>
+            <li>**Configuração da Legenda**: Coleta os handles e rótulos das linhas plotadas para criar uma legenda unificada para toda a figura.</li>
+            <li>**Rótulos da Figura**: Define rótulos para os eixos X ("Time step (5 minutes)") e Y ("Megabytes (normalized)") da figura.</li>
+            <li>**Salvamento da Figura**: A figura gerada é salva como `RAM predictions.png` no diretório `./img/`, com alta resolução (300 dpi), fundo transparente e ajustada para incluir todo o conteúdo.</li>
+        </ul>
+        <p>Em resumo, o script `predictions.py` atua como uma ferramenta de avaliação e visualização, carregando modelos pré-treinados, calculando suas métricas de desempenho em um conjunto de teste e gerando gráficos comparativos para entender visualmente a performance dos modelos na previsão de recursos de pods no Kubernetes.</p>
+    </div>
+</body>
+</html>

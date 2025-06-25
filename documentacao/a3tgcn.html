@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documentação do Código a3tgcn.py</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+            color: #333;
+        }
+        .container {
+            max-width: 900px;
+            margin: auto;
+            background: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        h1, h2, h3 {
+            color: #0056b3;
+        }
+        pre {
+            background: #eee;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        code {
+            font-family: "Courier New", Courier, monospace;
+        }
+        .citation {
+            font-size: 0.9em;
+            color: #555;
+            margin-left: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Documentação do Código `a3tgcn.py`</h1>
+        <p>O script Python `a3tgcn.py` implementa uma Rede Neural Convolucional Temporal com Atenção (A3TGCN) para previsão de séries temporais em um conjunto de dados do Kubernetes.</p>
+
+        <h2>1. Importações</h2>
+        <p>O script começa importando as bibliotecas necessárias:</p>
+        <ul>
+            <li><code>os</code>: Para interagir com o sistema operacional, como unir caminhos.</li>
+            <li><code>matplotlib.pyplot</code>: Para plotar a perda de treinamento.</li>
+            <li><code>numpy</code>: Para operações numéricas, especialmente com arrays.</li>
+            <li><code>argparse</code>: Para analisar argumentos de linha de comando.</li>
+            <li><code>torch</code>: A principal biblioteca PyTorch para aprendizado profundo.</li>
+            <li><code>torch.nn.functional</code>: Fornece API funcional para operações de redes neurais.</li>
+            <li><code>torch_geometric.utils.dense_to_sparse</code>: Utilitário para converter matrizes de adjacência densas em representações esparsas (índices e atributos de arestas).</li>
+            <li><code>torch_geometric_temporal.DynamicGraphTemporalSignal</code>: Uma classe para representar sinais temporais de grafos dinâmicos, crucial para dados de grafos de séries temporais.</li>
+            <li><code>torch_geometric_temporal.nn.recurrent.A3TGCN</code>: A própria camada A3TGCN, da biblioteca PyTorch Geometric Temporal.</li>
+            <li><code>torch_geometric_temporal.signal.temporal_signal_split</code>: Utilitário para dividir o conjunto de dados de grafos temporais em conjuntos de treinamento e teste.</li>
+        </ul>
+
+        <h2>2. Definição do Modelo <code>KubernetesA3TGCN</code></h2>
+        <p>Esta classe define o modelo de rede neural.</p>
+        <pre><code>
+class KubernetesA3TGCN(torch.nn.Module):
+    def __init__(self, dim_in, hidde_channels, periods):
+        super().__init__()
+        self.tgnn = A3TGCN(in_channels=dim_in, out_channels=hidde_channels, periods=periods)
+        self.linear = torch.nn.Linear(hidde_channels, periods)
+
+    def forward(self, x, edge_index, edge_attr):
+        h = self.tgnn(x, edge_index, edge_attr)
+        h = F.relu(h)
+        h = self.linear(h)
+        return h
+        </code></pre>
+        <ul>
+            <li>**<code>__init__(self, dim_in, hidde_channels, periods)</code>**:
+                <ul>
+                    <li>Inicializa o modelo <code>KubernetesA3TGCN</code>, herdando de <code>torch.nn.Module</code>.</li>
+                    <li><code>dim_in</code>: Dimensão de entrada das características do nó. Isso será <code>args.lags</code> em nosso caso, representando o número de etapas de tempo passadas usadas para previsão.</li>
+                    <li><code>hidde_channels</code>: O número de unidades ocultas na camada A3TGCN.</li>
+                    <li><code>periods</code>: O número de períodos a serem previstos. Neste script, é definido como 1, o que significa que prevê o próximo passo de tempo único.</li>
+                    <li><code>self.tgnn</code>: Uma instância da camada <code>A3TGCN</code>. Ela recebe a dimensão da característica de entrada, a dimensão oculta e o número de períodos como argumentos.</li>
+                    <li><code>self.linear</code>: Uma camada linear que mapeia a saída da camada A3TGCN (que possui <code>hidde_channels</code>) para os <code>periods</code> desejados (o horizonte de previsão).</li>
+                </ul>
+            </li>
+            <li>**<code>forward(self, x, edge_index, edge_attr)</code>**:
+                <ul>
+                    <li>Define a passagem para frente (forward pass) do modelo.</li>
+                    <li><code>x</code>: Características do nó (entrada para a A3TGCN).</li>
+                    <li><code>edge_index</code>: Tensor representando a conectividade do grafo (índices de nós conectados).</li>
+                    <li><code>edge_attr</code>: Tensor representando os pesos das arestas.</li>
+                    <li><code>h = self.tgnn(x, edge_index, edge_attr)</code>: A entrada <code>x</code>, <code>edge_index</code> e <code>edge_attr</code> são passadas através da camada A3TGCN.</li>
+                    <li><code>h = F.relu(h)</code>: Uma função de ativação ReLU é aplicada à saída da camada A3TGCN.</li>
+                    <li><code>h = self.linear(h)</code>: O resultado é então passado pela camada linear para obter as previsões finais.</li>
+                    <li>Os valores previstos <code>h</code> são retornados.</li>
+                </ul>
+            </li>
+        </ul>
+
+        <h2>3. Função <code>get_args()</code></h2>
+        <p>Esta função define e analisa os argumentos da linha de comando.</p>
+        <pre><code>
+def get_args():
+    parser = ArgumentParser(description=("Attention Temporal Graph Convolutional Network for Traffic Forecasting model "
+                                         "for Kubernetes dataset"))
+    parser.add_argument("--data", type=str, required=True, default="../data",
+                        help="path to dataset")
+    parser.add_argument("--resource-id", type=int, default=0,
+                        help="id of the pod resource")
+    parser.add_argument("--lags", type=int, default=12,
+                        help="number of lags for sequence")
+    parser.add_argument("--hidden-dim", type=int, default=32,
+                        help="hidden dimension of A3TGCN model")
+    parser.add_argument('--cuda', action='store_true')
+    parser.add_argument('--no-cuda', dest='cuda', action='store_false')
+    parser.add_argument("--epochs", type=int, default=500,
+                        help="number of epochs for A3TGCN model")
+    parser.add_argument("--learning-rate", type=float, default=0.01,
+                        help="learning rate for Adam optimizer")
+    parser.add_argument("--output", type=str, default=None,
+                        help="path to save the model")
+
+    return parser.parse_args()
+        </code></pre>
+        <ul>
+            <li><code>ArgumentParser</code>: Cria um objeto analisador de argumentos.</li>
+            <li><code>add_argument</code>: Define vários argumentos de linha de comando:
+                <ul>
+                    <li><code>--data</code>: Caminho para o conjunto de dados (obrigatório). O padrão é "../data".</li>
+                    <li><code>--resource-id</code>: ID do recurso de pod a ser focado. O padrão é 0.</li>
+                    <li><code>--lags</code>: Número de passos de tempo passados a serem considerados para cada sequência de entrada. O padrão é 12.</li>
+                    <li><code>--hidden-dim</code>: Dimensão das camadas ocultas no modelo A3TGCN. O padrão é 32.</li>
+                    <li><code>--cuda</code> / <code>--no-cuda</code>: Flags para habilitar ou desabilitar o uso de CUDA (GPU). <code>--cuda</code> define como verdadeiro, <code>--no-cuda</code> define como falso, sendo <code>--cuda</code> o padrão se nenhum for especificado.</li>
+                    <li><code>--epochs</code>: Número de épocas de treinamento. O padrão é 500.</li>
+                    <li><code>--learning-rate</code>: Taxa de aprendizado para o otimizador Adam. O padrão é 0.01.</li>
+                    <li><code>--output</code>: Caminho para salvar o modelo treinado. O padrão é <code>None</code> (modelo não salvo).</li>
+                </ul>
+            </li>
+            <li><code>parser.parse_args()</code>: Analisa os argumentos fornecidos pelo usuário e os retorna como um objeto.</li>
+        </ul>
+
+        <h2>4. Função <code>create_dataset()</code></h2>
+        <p>Esta função transforma os dados brutos do NumPy em um objeto <code>DynamicGraphTemporalSignal</code>, que é o formato exigido para <code>torch-geometric-temporal</code>.</p>
+        <pre><code>
+def create_dataset(node_feats, adjacency_mat, labels, resource):
+    edge_indices = []
+    edge_weights = []
+    features = []
+    targets = []
+
+    for i in range(len(node_feats)):
+        indices, weights = dense_to_sparse(torch.from_numpy(adjacency_mat[i].mean(axis=0)))
+        feature = node_feats[i, ..., resource].swapaxes(0, 1)
+        target = labels[i, ..., resource]
+
+        edge_indices.append(indices.numpy())
+        edge_weights.append(weights.numpy())
+        features.append(feature)
+        targets.append(target)
+
+    return DynamicGraphTemporalSignal(edge_indices, edge_weights, features, targets)
+        </code></pre>
+        <ul>
+            <li><code>node_feats</code>: Características brutas do nó (dados de séries temporais para cada nó).</li>
+            <li><code>adjacency_mat</code>: Matrizes de adjacência brutas (estrutura do grafo ao longo do tempo).</li>
+            <li><code>labels</code>: Rótulos de verdade (os valores a serem previstos).</li>
+            <li><code>resource</code>: O ID do recurso específico a ser extraído dos dados.</li>
+            <li>**Iterando sobre os passos de tempo**: O loop <code>for i in range(len(node_feats))</code> itera sobre cada instantâneo de tempo no conjunto de dados.
+                <ul>
+                    <li><code>indices, weights = dense_to_sparse(torch.from_numpy(adjacency_mat[i].mean(axis=0)))</code>:
+                        <ul>
+                            <li><code>adjacency_mat[i].mean(axis=0)</code>: Esta linha parece estar tirando a média da matriz de adjacência em um eixo, o que pode implicar em várias matrizes de adjacência por passo de tempo ou alguma forma de agregação. Em seguida, é convertida em um tensor PyTorch.</li>
+                            <li><code>dense_to_sparse</code>: Converte a matriz de adjacência densa (potencialmente agregada) para o formato esparso (índices e pesos de arestas). Isso é eficiente para operações de grafo.</li>
+                        </ul>
+                    </li>
+                    <li><code>feature = node_feats[i, ..., resource].swapaxes(0, 1)</code>:
+                        <ul>
+                            <li>Extrai as características do nó para o passo de tempo atual <code>i</code> e o <code>resource</code> especificado.</li>
+                            <li><code>.swapaxes(0, 1)</code>: Troca os primeiros e segundos eixos do tensor de características. Isso pode ser necessário para obter as características no formato <code>[num_nodes, num_features]</code> esperado por <code>torch-geometric-temporal</code>, onde <code>num_features</code> corresponde aos <code>lags</code>.</li>
+                        </ul>
+                    </li>
+                    <li><code>target = labels[i, ..., resource]</code>: Extrai os valores-alvo para o passo de tempo atual <code>i</code> e o <code>resource</code> especificado.</li>
+                    <li><code>append</code> às listas: Os <code>edge_indices</code>, <code>edge_weights</code>, <code>features</code> e <code>targets</code> extraídos são anexados às suas respectivas listas.</li>
+                </ul>
+            </li>
+            <li><code>return DynamicGraphTemporalSignal(...)</code>: Finalmente, um objeto <code>DynamicGraphTemporalSignal</code> é criado e retornado, encapsulando todos os dados de grafos temporais processados.</li>
+        </ul>
+
+        <h2>5. Bloco de Execução Principal (<code>if __name__ == "__main__":</code>)</h2>
+        <p>Este bloco contém a lógica principal para carregamento de dados, treinamento e avaliação do modelo.</p>
+        <pre><code>
+if __name__ == "__main__":
+    args = get_args()
+    node_features = np.load(os.path.join(args.data, "node_features.npz"))
+    edge_features = np.load(os.path.join(args.data, "edge_features.npz"))
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if not args.cuda:
+        device = torch.device("cpu")
+
+    X, y = node_features["X"], node_features["y"]
+    A = edge_features["A"]
+    k8s_dataset = create_dataset(X, A, y, args.resource_id)
+
+    train_dataset, test_dataset = temporal_signal_split(k8s_dataset, train_ratio=0.8)
+    model = KubernetesA3TGCN(args.lags, args.hidden_dim, 1).to(device)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
+    history = []
+    model.train()
+    for epoch in range(args.epochs):
+        loss = 0
+        step = 0
+        for i, snapshot in enumerate(train_dataset):
+            x = snapshot.x.to(device)
+            edge_index = snapshot.edge_index.to(device)
+            edge_attr = snapshot.edge_attr.to(device)
+            y = snapshot.y.to(device)
+
+            y_pred = model(x.unsqueeze(2), edge_index, edge_attr)
+            loss += torch.mean((y_pred - y) ** 2)
+            step += 1
+
+        loss = loss / (step + 1)
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+        history.append(loss.item())
+        if epoch % 10 == 0:
+            print(f"Epoch {epoch+1:>2} | Train MSE: {loss:.4f}")
+
+    plt.plot(history)
+    plt.xlabel("Epochs")
+    plt.ylabel("MSE Loss")
+    plt.show()
+    if args.output is not None:
+        torch.save(model.state_dict(), os.path.join(args.output, "a3tgcn.pt"))
+        </code></pre>
+        <ul>
+            <li>**Análise de Argumentos**: <code>args = get_args()</code> recupera os argumentos da linha de comando.</li>
+            <li>**Carregamento de Dados**:
+                <ul>
+                    <li><code>node_features = np.load(...)</code>: Carrega as características do nó de "node_features.npz".</li>
+                    <li><code>edge_features = np.load(...)</code>: Carrega as características da aresta (matrizes de adjacência) de "edge_features.npz".</li>
+                    <li><code>X, y = node_features["X"], node_features["y"]</code>: Extrai os arrays 'X' (características de entrada) e 'y' (rótulos) das características do nó.</li>
+                    <li><code>A = edge_features["A"]</code>: Extrai o array 'A' (matrizes de adjacência) das características da aresta.</li>
+                </ul>
+            </li>
+            <li>**Configuração do Dispositivo**:
+                <ul>
+                    <li><code>device = torch.device("cuda" if torch.cuda.is_available() else "cpu")</code>: Verifica se uma GPU habilitada para CUDA está disponível; caso contrário, usa a CPU.</li>
+                    <li><code>if not args.cuda: device = torch.device("cpu")</code>: Se a flag <code>--no-cuda</code> foi usada, explicitamente define o dispositivo para CPU.</li>
+                </ul>
+            </li>
+            <li>**Criação do Conjunto de Dados**: <code>k8s_dataset = create_dataset(X, A, y, args.resource_id)</code> chama a função definida anteriormente para preparar os dados no formato <code>DynamicGraphTemporalSignal</code>.</li>
+            <li>**Divisão Treino/Teste**: <code>train_dataset, test_dataset = temporal_signal_split(k8s_dataset, train_ratio=0.8)</code> divide o conjunto de dados em 80% para treinamento e 20% para teste.</li>
+            <li>**Inicialização do Modelo**: <code>model = KubernetesA3TGCN(args.lags, args.hidden_dim, 1).to(device)</code> inicializa o modelo <code>KubernetesA3TGCN</code> com os <code>lags</code> especificados (características de entrada), <code>hidden_dim</code> e um <code>periods</code> de previsão de 1. O modelo é então movido para o <code>device</code> selecionado (CPU/GPU).</li>
+            <li>**Otimizador**: <code>optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)</code> configura o otimizador Adam com os parâmetros do modelo e a taxa de aprendizado especificada.</li>
+            <li>**Loop de Treinamento**:
+                <ul>
+                    <li><code>history = []</code>: Uma lista para armazenar a perda em cada época.</li>
+                    <li><code>model.train()</code>: Define o modelo para o modo de treinamento.</li>
+                    <li>O loop externo <code>for epoch in range(args.epochs)</code> itera pelo número especificado de épocas.
+                        <ul>
+                            <li><code>loss = 0</code>, <code>step = 0</code>: Inicializa a perda e o contador de passos para a época atual.</li>
+                            <li>O loop interno <code>for i, snapshot in enumerate(train_dataset)</code> itera sobre cada instantâneo (passo de tempo) no conjunto de dados de treinamento.
+                                <ul>
+                                    <li><code>x = snapshot.x.to(device)</code>: Move as características do nó para o dispositivo (CPU/GPU).</li>
+                                    <li><code>edge_index = snapshot.edge_index.to(device)</code>: Move os índices das arestas para o dispositivo (CPU/GPU).</li>
+                                    <li><code>edge_attr = snapshot.edge_attr.to(device)</code>: Move os atributos das arestas para o dispositivo (CPU/GPU).</li>
+                                    <li><code>y = snapshot.y.to(device)</code>: Move os rótulos para o dispositivo (CPU/GPU).</li>
+                                    <li><code>y_pred = model(x.unsqueeze(2), edge_index, edge_attr)</code>: Realiza uma passagem para frente através do modelo. <code>x.unsqueeze(2)</code> adiciona uma dimensão extra a <code>x</code>, que pode ser exigida pelo formato de entrada da camada <code>A3TGCN</code> (por exemplo, <code>[num_nodes, num_features, 1]</code>).</li>
+                                    <li><code>loss += torch.mean((y_pred - y) ** 2)</code>: Calcula o Erro Quadrático Médio (MSE) entre as previsões e os valores reais e o acumula.</li>
+                                    <li><code>step += 1</code>: Incrementa o contador de passos.</li>
+                                </ul>
+                            </li>
+                            <li><code>loss = loss / (step + 1)</code>: Calcula a perda média para a época atual.</li>
+                            <li><code>loss.backward()</code>: Calcula os gradientes da perda em relação aos parâmetros do modelo.</li>
+                            <li><code>optimizer.step()</code>: Atualiza os parâmetros do modelo usando os gradientes calculados.</li>
+                            <li><code>optimizer.zero_grad()</code>: Limpa os gradientes para evitar o acúmulo.</li>
+                            <li><code>history.append(loss.item())</code>: Armazena a perda da época.</li>
+                            <li><code>if epoch % 10 == 0: print(...)</code>: Imprime o MSE de treinamento a cada 10 épocas.</li>
+                        </ul>
+                    </li>
+                </ul>
+            </li>
+            <li>**Plotagem da Perda**:
+                <ul>
+                    <li><code>plt.plot(history)</code>: Plota a perda de treinamento ao longo das épocas.</li>
+                    <li><code>plt.xlabel("Epochs")</code>, <code>plt.ylabel("MSE Loss")</code>: Define os rótulos para o gráfico.</li>
+                    <li><code>plt.show()</code>: Exibe o gráfico.</li>
+                </ul>
+            </li>
+            <li>**Salvamento do Modelo**:
+                <ul>
+                    <li><code>if args.output is not None:</code>: Se um caminho de saída foi fornecido através de argumentos de linha de comando.</li>
+                    <li><code>torch.save(model.state_dict(), os.path.join(args.output, "a3tgcn.pt"))</code>: Salva o dicionário de estado do modelo treinado no caminho especificado.</li>
+                </ul>
+            </li>
+        </ul>
+        <p>Em resumo, este script configura, treina e (opcionalmente) salva um modelo A3TGCN para prever o uso de recursos em um cluster Kubernetes, aproveitando redes neurais de grafos para capturar dependências espaço-temporais nos dados.</p>
+    </div>
+</body>
+</html>

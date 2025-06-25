@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documentação dos Scripts de Instalação e Gerenciamento do Ambiente Kubernetes com Istio</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+            color: #333;
+        }
+        .container {
+            max-width: 900px;
+            margin: auto;
+            background: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+        h1, h2, h3 {
+            color: #0056b3;
+        }
+        pre {
+            background: #eee;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        code {
+            font-family: "Courier New", Courier, monospace;
+        }
+        .citation {
+            font-size: 0.9em;
+            color: #555;
+            margin-left: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Documentação dos Scripts de Instalação e Gerenciamento do Ambiente Kubernetes com Istio</h1>
+        <p>Este documento fornece uma descrição detalhada de três scripts Bash projetados para configurar e gerenciar um ambiente Kubernetes com Istio, implantar uma aplicação de exemplo (Online Boutique) e configurar o port-forwarding para acessar os serviços de monitoramento e a própria aplicação.</p>
+
+        <h2>1. Script `install_istio.sh`</h2>
+        <p>Este script automatiza a instalação do Istio e seus principais add-ons de observabilidade em um cluster Kubernetes. Ele assume que o binário `istioctl` já foi baixado e configurado corretamente no PATH do sistema.</p>
+
+        <h3>1.1. Propósito</h3>
+        <p>Instala o Istio, cria o namespace da aplicação e injeta o sidecar do Istio nos pods, além de implantar os add-ons de observabilidade (Prometheus, Kiali, Jaeger, Grafana).</p>
+
+        <h3>1.2. Conteúdo do Script</h3>
+        <pre><code>
+#!/bin/bash
+set -e
+
+echo "Instalando ISTIO. considere que o download ja foi realizado e adicionado ao path de forma correta"
+
+istioctl install --set profile=demo -y
+
+echo "criando o namespace..."
+kubectl create namespace boutique
+
+echo "injetando o sidecar no namespace"
+kubectl label namespace boutique istio-injection=enabled
+
+echo "Subindo os add-ons do Istio..."
+
+echo "Aplicando Prometheus..."
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/master/samples/addons/prometheus.yaml
+
+echo "Aplicando Kiali..."
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/master/samples/addons/kiali.yaml
+
+echo "Aplicando Jaeger..."
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/master/samples/addons/jaeger.yaml
+
+echo "Aplicando Grafana..."
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/master/samples/addons/grafana.yaml
+
+echo "Todos os add-ons foram aplicados. Aguarde alguns instantes para que os pods sejam iniciados."
+        </code></pre>
+
+        <h3>1.3. Análise Detalhada</h3>
+        <ul>
+            <li><code>#!/bin/bash</code>: Shebang, indica que o script deve ser executado com Bash.</li>
+            <li><code>set -e</code>: Garante que o script será encerrado imediatamente se qualquer comando falhar.</li>
+            <li><code>echo "Instalando ISTIO. ..."</code>: Mensagem informativa.</li>
+            <li><code>istioctl install --set profile=demo -y</code>: Instala o Istio usando o perfil 'demo', que é adequado para demonstrações e ambientes de teste, e `--set profile=demo -y` aceita automaticamente todas as prompts.</li>
+            <li><code>kubectl create namespace boutique</code>: Cria um novo namespace no Kubernetes chamado `boutique`, onde a aplicação será implantada.</li>
+            <li><code>kubectl label namespace boutique istio-injection=enabled</code>: Adiciona um label ao namespace `boutique` que instrui o Istio a injetar automaticamente o sidecar Envoy em todos os novos pods implantados neste namespace. Isso é crucial para que o Istio gerencie o tráfego e colete métricas da aplicação.</li>
+            <li>**Aplicação dos Add-ons**: O script então aplica os manifestos YAML para os add-ons de observabilidade do Istio diretamente dos seus repositórios GitHub oficiais:
+                <ul>
+                    <li>`prometheus.yaml`: Implanta o Prometheus, um sistema de monitoramento e alerta.</li>
+                    <li>`kiali.yaml`: Implanta o Kiali, uma ferramenta de observabilidade para malhas de serviço, que oferece visualização da topologia da malha.</li>
+                    <li>`jaeger.yaml`: Implanta o Jaeger (ou Tracing), uma ferramenta de rastreamento distribuído para monitorar e solucionar problemas de transações entre microserviços.</li>
+                    <li>`grafana.yaml`: Implanta o Grafana, uma plataforma de análise e visualização de dados comumente usada para criar dashboards a partir de fontes como o Prometheus.</li>
+                </ul>
+            </li>
+            <li>Mensagem final: Informa que os add-ons foram aplicados e que é necessário aguardar o início dos pods.</li>
+        </ul>
+
+        <h3>1.4. Pré-requisitos</h3>
+        <ul>
+            <li><code>kubectl</code> configurado e autenticado em um cluster Kubernetes.</li>
+            <li><code>istioctl</code> (ferramenta de linha de comando do Istio) baixado e disponível no PATH do sistema.</li>
+            <li>Conexão de internet para baixar os manifestos dos add-ons.</li>
+        </ul>
+
+        <h2>2. Script `boutique.sh`</h2>
+        <p>Este script implanta a aplicação de exemplo Online Boutique (também conhecida como microservices-demo) no cluster Kubernetes no namespace `boutique`.</p>
+
+        <h3>2.1. Propósito</h3>
+        <p>Implanta todos os serviços e recursos necessários para a aplicação Online Boutique no cluster Kubernetes.</p>
+
+        <h3>2.2. Conteúdo do Script</h3>
+        <pre><code>
+#!/bin/bash
+
+CAMINHO_MANIFESTOS="../sample/microservices-demo/release/kubernetes-manifests.yaml"
+
+if [ ! -f "$CAMINHO_MANIFESTOS" ]; then
+    echo "Erro: Arquivo de manifestos não encontrado em ${CAMINHO_MANIFESTOS}"
+    echo "Certifique-se de estar executando o script a partir do diretório raiz do repositório microservices-demo"
+    echo "ou ajuste a variável CAMINHO_MANIFESTOS para o caminho correto."
+    exit 1
+fi
+
+echo "Aplicando manifestos da aplicação Online Boutique do arquivo: ${CAMINHO_MANIFESTOS}"
+
+kubectl apply -f "$CAMINHO_MANIFESTOS" -n boutique
+
+echo "Verificando o status dos pods (pode levar alguns minutos para ficarem prontos)..."
+kubectl get pods
+
+echo "Provisionamento da aplicação Online Boutique iniciado."
+echo "Use 'kubectl get pods' e 'kubectl get svc' para verificar o status dos componentes."
+        </code></pre>
+
+        <h3>2.3. Análise Detalhada</h3>
+        <ul>
+            <li><code>#!/bin/bash</code>: Shebang.</li>
+            <li><code>CAMINHO_MANIFESTOS</code>: Define a variável com o caminho para o arquivo YAML que contém os manifestos da aplicação. Ele assume uma estrutura de diretório específica, mas pode ser ajustado.</li>
+            <li>**Verificação de Arquivo**: Um bloco `if` verifica se o arquivo de manifestos especificado em `CAMINHO_MANIFESTOS` realmente existe. Se não existir, imprime uma mensagem de erro e encerra o script.</li>
+            <li><code>echo "Aplicando manifestos..."</code>: Mensagem informativa.</li>
+            <li><code>kubectl apply -f "$CAMINHO_MANIFESTOS" -n boutique</code>: Aplica todos os recursos definidos no arquivo de manifestos (`kubernetes-manifests.yaml`) no namespace `boutique`. Este comando cria Deployments, Services, ConfigMaps, etc., necessários para a aplicação.</li>
+            <li><code>echo "Verificando o status dos pods..."</code> e `kubectl get pods`: Imprime uma mensagem e executa `kubectl get pods` para mostrar o status inicial dos pods, permitindo ao usuário verificar se eles estão sendo criados.</li>
+            <li>Mensagens finais: Informam que o provisionamento foi iniciado e fornecem dicas para verificar o status dos componentes.</li>
+        </ul>
+
+        <h3>2.4. Pré-requisitos</h3>
+        <ul>
+            <li><code>kubectl</code> configurado e autenticado em um cluster Kubernetes.</li>
+            <li>O repositório `microservices-demo` (Online Boutique) deve ter sido baixado, e o `CAMINHO_MANIFESTOS` deve apontar para o arquivo `release/kubernetes-manifests.yaml` dentro dele, ou o arquivo deve estar em outro local configurado.</li>
+            <li>O namespace `boutique` deve ter sido criado e, idealmente, ter a injeção de sidecar do Istio habilitada (conforme feito por `install_istio.sh`).</li>
+        </ul>
+
+        <h2>3. Script `port-forwards.sh`</h2>
+        <p>Este script configura o port-forwarding de serviços importantes da aplicação e dos add-ons do Istio para `localhost`, permitindo o acesso direto a partir da máquina local.</p>
+
+        <h3>3.1. Propósito</h3>
+        <p>Cria túneis de porta do cluster Kubernetes para o `localhost` para o frontend da aplicação Online Boutique e para os dashboards do Grafana, Kiali, Jaeger/Tracing e Prometheus, facilitando o acesso durante o desenvolvimento e monitoramento.</p>
+
+        <h3>3.2. Conteúdo do Script</h3>
+        <pre><code>
+#!/bin/bash
+
+NAMESPACE="istio-system"
+NAMESPACE_APP="boutique"
+
+echo "Iniciando port-forwarding para o app Boutique Online no namespace: ${NAMESPACE_APP}"
+kubectl port-forward svc/frontend 8080:80 -n ${NAMESPACE_APP} &
+FRONT_PID=$!
+echo "Port forward iniciado no frontend da app com PID: ${FRONT_PID}"
+
+echo "Iniciando port-forwarding para addons do Istio no namespace: ${NAMESPACE}"
+
+# Port-forward para Grafana (porta 3000)
+echo "Iniciando port-forward para Grafana (localhost:3000)..."
+kubectl port-forward svc/grafana 3000:3000 -n ${NAMESPACE} &
+GRAFANA_PID=$!
+echo "Port-forward para Grafana iniciado com PID: ${GRAFANA_PID}"
+
+# Port-forward para Kiali (porta 20001)
+echo "Iniciando port-forward para Kiali (localhost:20001)..."
+kubectl port-forward svc/kiali 20001:20001 -n ${NAMESPACE} &
+KIALI_PID=$!
+echo "Port-forward para Kiali iniciado com PID: ${KIALI_PID}"
+
+# Port-forward para Jaeger/Tracing (porta 16685)
+echo "Iniciando port-forward para Jaeger/Tracing (localhost:16685)..."
+kubectl port-forward svc/tracing 16685:16685 -n ${NAMESPACE} &
+JAEGER_PID=$!
+echo "Port-forward para Jaeger/Tracing iniciado com PID: ${JAEGER_PID}"
+
+# Port-forward para Prometheus (porta 9090)
+echo "Iniciando port-forward para Prometheus (localhost:9090)..."
+kubectl port-forward svc/prometheus 9090:9090 -n ${NAMESPACE} &
+PROMETHEUS_PID=$!
+echo "Port-forward para Prometheus iniciado com PID: ${PROMETHEUS_PID}"
+
+echo "Port-forwarding para todos os addons solicitados iniciado em segundo plano."
+echo "Você pode acessar os dashboards nos seguintes endereços:"
+echo "- Grafana: http://localhost:3000"
+echo "- Kiali: http://localhost:20001"
+echo "- Jaeger/Tracing: http://localhost:16685"
+echo "- Prometheus: http://localhost:9090"
+echo ""
+echo "Para parar os processos de port-forwarding, você pode usar os PIDs listados acima"
+echo "ou encontrar os processos 'kubectl port-forward' e encerrá-los."
+echo "Alternativamente, fechar o terminal onde o script está rodando geralmente encerrará os processos em segundo plano."
+        </code></pre>
+
+        <h3>3.3. Análise Detalhada</h3>
+        <ul>
+            <li><code>#!/bin/bash</code>: Shebang.</li>
+            <li><code>NAMESPACE="istio-system"</code>: Define o namespace onde os add-ons do Istio estão localizados.</li>
+            <li><code>NAMESPACE_APP="boutique"</code>: Define o namespace onde a aplicação está localizada.</li>
+            <li>**Port-forward do Frontend da Aplicação**:
+                <ul>
+                    <li>`kubectl port-forward svc/frontend 8080:80 -n ${NAMESPACE_APP} &`: Encaminha a porta 80 do serviço `frontend` no namespace `boutique` para a porta local 8080. O `&` executa o comando em segundo plano.</li>
+                    <li><code>FRONT_PID=$!</code>: Armazena o PID do processo em segundo plano.</li>
+                </ul>
+            </li>
+            <li>**Port-forward dos Add-ons do Istio**:
+                <ul>
+                    <li>`kubectl port-forward svc/grafana 3000:3000 -n ${NAMESPACE} &`: Encaminha a porta 3000 do serviço `grafana` para a porta local 3000.</li>
+                    <li>`kubectl port-forward svc/kiali 20001:20001 -n ${NAMESPACE} &`: Encaminha a porta 20001 do serviço `kiali` para a porta local 20001.</li>
+                    <li>`kubectl port-forward svc/tracing 16685:16685 -n ${NAMESPACE} &`: Encaminha a porta 16685 do serviço `tracing` (Jaeger) para a porta local 16685.</li>
+                    <li>`kubectl port-forward svc/prometheus 9090:9090 -n ${NAMESPACE} &`: Encaminha a porta 9090 do serviço `prometheus` para a porta local 9090.</li>
+                    <li>Variáveis `_PID`: Cada PID do processo de port-forward em segundo plano é armazenado.</li>
+                </ul>
+            </li>
+            <li>**Instruções Finais**: Fornece os URLs de acesso para cada dashboard e instruções sobre como parar os processos de port-forwarding usando os PIDs ou encerrando o terminal.</li>
+        </ul>
+
+        <h3>3.4. Pré-requisitos</h3>
+        <ul>
+            <li><code>kubectl</code> configurado e autenticado em um cluster Kubernetes.</li>
+            <li>Os serviços `frontend`, `grafana`, `kiali`, `tracing` (ou `jaeger-query`) e `prometheus` devem estar rodando e acessíveis nos seus respectivos namespaces (`boutique` e `istio-system`).</li>
+            <li>Um terminal compatível com Bash (como Git Bash no Windows, WSL, ou terminais Linux/macOS).</li>
+        </ul>
+    </div>
+</body>
+</html>

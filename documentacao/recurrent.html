@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documentação do Código recurrent.py</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+            color: #333;
+        }
+        .container {
+            max-width: 900px;
+            margin: auto;
+            background: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        h1, h2, h3 {
+            color: #0056b3;
+        }
+        pre {
+            background: #eee;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        code {
+            font-family: "Courier New", Courier, monospace;
+        }
+        .citation {
+            font-size: 0.9em;
+            color: #555;
+            margin-left: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Documentação do Código `recurrent.py`</h1>
+        <p>O script `recurrent.py` implementa e treina modelos de previsão recorrentes, especificamente <a href="https://pytorch-forecasting.readthedocs.io/en/latest/api/pytorch_forecasting.models.temporal_fusion_transformer.html" target="_blank">TemporalFusionTransformer (TFT)</a> e <a href="https://pytorch-forecasting.readthedocs.io/en/latest/api/pytorch_forecasting.models.rnn.html" target="_blank">RecurrentNetwork (LSTM/GRU)</a>, para previsão de séries temporais em um conjunto de dados do Kubernetes.</p>
+
+        <h2>1. Importações</h2>
+        <p>O script começa importando as bibliotecas necessárias para sua execução:</p>
+        <ul>
+            <li><code>os</code>: Para interagir com o sistema operacional, como manipulação de caminhos de arquivo.</li>
+            <li><code>shutil</code>: Para operações de alto nível em arquivos e coleções de arquivos, como copiar.</li>
+            <li><code>warnings</code>: Para controlar mensagens de aviso.</li>
+            <li><code>torch</code>: A biblioteca principal do PyTorch para computação com tensores e construção de redes neurais.</li>
+            <li><code>ArgumentParser</code> da `argparse`: Para analisar argumentos da linha de comando.</li>
+            <li><code>pandas</code> as <code>pd</code>: Para manipulação e análise de dados em formato tabular (DataFrames).</li>
+            <li><code>TemporalFusionTransformer</code>, <code>TimeSeriesDataSet</code>, <code>RecurrentNetwork</code> da `pytorch_forecasting`: Classes e modelos específicos para previsão de séries temporais usando a biblioteca PyTorch Forecasting.</li>
+            <li><code>QuantileLoss</code> da `pytorch_forecasting.metrics`: Métrica de perda utilizada para previsão de quantis, comum em modelos como o TFT.</li>
+            <li><code>lightning.pytorch</code> as <code>pl</code>: PyTorch Lightning, uma estrutura leve para organizar o código PyTorch e simplificar o treinamento de modelos.</li>
+            <li><code>EarlyStopping</code> da `lightning.pytorch.callbacks`: Um callback para interromper o treinamento precocemente se a perda de validação parar de melhorar.</li>
+        </ul>
+        <p>Além das importações, o script configura o seguinte:</p>
+        <ul>
+            <li><code>warnings.filterwarnings("ignore")</code>: Ignora todas as mensagens de aviso.</li>
+            <li><code>torch.set_float32_matmul_precision('medium')</code>: Configura a precisão das operações de multiplicação de matrizes float32 do PyTorch para 'medium', o que pode otimizar o desempenho em algumas GPUs.</li>
+        </ul>
+
+        <h2>2. Função <code>get_args()</code></h2>
+        <p>Esta função define e analisa os argumentos da linha de comando que podem ser passados para o script.</p>
+        <pre><code>
+def get_args():
+    parser = ArgumentParser(description="Recurrent models for Kubernetes dataset")
+    parser.add_argument("--data", type=str, required=True,
+                        help="path to dataset")
+    parser.add_argument("--model", type=str, required=True, help="Model to use [tft or recurrent]")
+    parser.add_argument("--resource-id", type=int, default=0,
+                        help="id of the pod resource")
+    parser.add_argument("--lags", type=int, default=12,
+                        help="number of lags for sequence")
+    parser.add_argument("--batch-size", type=int, default=128,
+                        help="batch size for episode")
+    parser.add_argument("--rnn-layers", type=int, default=2,
+                        help="Number of RNN layers - important hyperparameter")
+    parser.add_argument("--hidden-size", type=int, default=10,
+                        help="Hidden size of network")
+    parser.add_argument("--attn-head-size", type=int, default=4,
+                        help="Number of attention heads (TFT only)")
+    parser.add_argument("--dropout", type=float, default=0.1, help="Dropout rate")
+    parser.add_argument("--max-epochs", type=int, default=500,
+                        help="maximum number of epochs")
+    parser.add_argument("--learning-rate", type=float, default=0.01,
+                        help="learning rate for the optimizer")
+    parser.add_argument("--cell-type", type=str, default="LSTM",
+                        help='Recurrent cell type ["LSTM", "GRU"]')
+    parser.add_argument("--hidden-continuous-size", type=int, default=8)
+    parser.add_argument("--gradient-clip-val", type=float, default=0.1)
+    parser.add_argument("--output", type=str, default=None,
+                        help="path to save the model")
+
+    return parser.parse_args()
+        </code></pre>
+        <ul>
+            <li><code>--data</code>: Caminho para o diretório do conjunto de dados (obrigatório).</li>
+            <li><code>--model</code>: O tipo de modelo a ser usado: "tft" para TemporalFusionTransformer ou "recurrent" para RecurrentNetwork (obrigatório).</li>
+            <li><code>--resource-id</code>: ID do recurso do pod a ser previsto (0 para memória, 1 para CPU). O padrão é 0.</li>
+            <li><code>--lags</code>: Número de passos de tempo passados a serem usados como entrada (comprimento do codificador). O padrão é 12.</li>
+            <li><code>--batch-size</code>: Tamanho do lote para treinamento. O padrão é 128.</li>
+            <li><code>--rnn-layers</code>: Número de camadas RNN (hiperparâmetro importante). O padrão é 2.</li>
+            <li><code>--hidden-size</code>: Tamanho das camadas ocultas da rede. O padrão é 10.</li>
+            <li><code>--attn-head-size</code>: Número de cabeças de atenção (apenas para TFT). O padrão é 4.</li>
+            <li><code>--dropout</code>: Taxa de dropout. O padrão é 0.1.</li>
+            <li><code>--max-epochs</code>: Número máximo de épocas para treinamento. O padrão é 500.</li>
+            <li><code>--learning-rate</code>: Taxa de aprendizado para o otimizador. O padrão é 0.01.</li>
+            <li><code>--cell-type</code>: Tipo de célula recorrente para <code>RecurrentNetwork</code> ("LSTM" ou "GRU"). O padrão é "LSTM".</li>
+            <li><code>--hidden-continuous-size</code>: Tamanho oculto para variáveis contínuas (usado no TFT). O padrão é 8.</li>
+            <li><code>--gradient-clip-val</code>: Valor de corte para o gradiente (para evitar gradientes explosivos). O padrão é 0.1.</li>
+            <li><code>--output</code>: Caminho para salvar o modelo treinado. O padrão é `None` (não salva).</li>
+        </ul>
+
+        <h2>3. Função <code>get_dataset()</code></h2>
+        <p>Esta função carrega e prepara o conjunto de dados para uso com os modelos de previsão.</p>
+        <pre><code>
+def get_dataset(data, resource_id, lags):
+    data = pd.read_csv(os.path.join(data, "pod_metrics.csv"))
+    data["group"] = 0
+    data["time_idx"] = data["timestamp"].argsort()
+
+    drop_names = []
+    for name in data.columns.values:
+        if name.endswith("mem" if resource_id == 0 else "cpu"):
+            drop_names.append(name)
+    data = data.drop(columns=drop_names)
+
+    # Loading the dataset
+    targets = list(data.columns.values)
+    targets.remove("timestamp")
+    targets.remove("group")
+    targets.remove("time_idx")
+
+    return TimeSeriesDataSet(
+        data,
+        time_idx="time_idx",
+        target=targets,
+        group_ids=["group"],
+        max_encoder_length=lags,
+        max_prediction_length=1,
+        static_reals=["group"],
+        time_varying_known_reals=["timestamp", "time_idx"],
+        time_varying_unknown_reals=targets
+    ), data
+        </code></pre>
+        <ul>
+            <li>Carrega o arquivo `pod_metrics.csv` do caminho especificado.</li>
+            <li>Adiciona uma coluna "group" (definida como 0, indicando um único grupo de séries temporais) e uma coluna "time_idx" (índice de tempo ordenado).</li>
+            <li>Remove colunas de métricas que não correspondem ao recurso (memória ou CPU) selecionado via `resource_id`, para focar na previsão de um tipo de recurso por vez.</li>
+            <li>Identifica as colunas que são os alvos da previsão, excluindo as colunas auxiliares ("timestamp", "group", "time_idx").</li>
+            <li>Cria e retorna um objeto <code>TimeSeriesDataSet</code> do PyTorch Forecasting. Este objeto configura como os dados serão usados para treinamento, incluindo:
+                <ul>
+                    <li><code>time_idx</code>: Coluna que indica o tempo.</li>
+                    <li><code>target</code>: As colunas a serem previstas.</li>
+                    <li><code>group_ids</code>: Colunas que identificam séries temporais individuais (aqui, um único grupo).</li>
+                    <li><code>max_encoder_length</code>: O número de passos de tempo passados a serem usados como entrada para o modelo (o `lags` do argumento).</li>
+                    <li><code>max_prediction_length</code>: O número de passos de tempo futuros a serem previstos (aqui, 1).</li>
+                    <li><code>static_reals</code>: Variáveis numéricas que são constantes para cada série temporal.</li>
+                    <li><code>time_varying_known_reals</code>: Variáveis numéricas que mudam ao longo do tempo e são conhecidas no futuro.</li>
+                    <li><code>time_varying_unknown_reals</code>: Variáveis numéricas que mudam ao longo do tempo e são desconhecidas no futuro (os alvos).</li>
+                </ul>
+            </li>
+            <li>Retorna o objeto `TimeSeriesDataSet` de treinamento e o DataFrame de dados original.</li>
+        </ul>
+
+        <h2>4. Bloco de Execução Principal (<code>if __name__ == "__main__":</code>)</h2>
+        <p>Este bloco contém a lógica principal para configurar o modelo, treinar e, opcionalmente, salvá-lo.</p>
+        <pre><code>
+if __name__ == "__main__":
+    args = get_args()
+    training, data = get_dataset(args.data, args.resource_id, args.lags)
+
+    validation = TimeSeriesDataSet.from_dataset(training, data, predict=True, stop_randomization=True)
+    train_dataloader = training.to_dataloader(train=True, batch_size=args.batch_size)
+    val_dataloader = validation.to_dataloader(train=False, batch_size=args.batch_size)
+
+    # Defining the model
+    early_stop_callback = EarlyStopping(monitor="val_loss", min_delta=1e-4, patience=10, verbose=False, mode="min")
+    if args.model == "tft":
+        model = TemporalFusionTransformer.from_dataset(
+            training,
+            learning_rate=args.learning_rate,
+            lstm_layers=args.rnn_layers,
+            hidden_size=args.hidden_size,
+            attention_head_size=args.attn_head_size,
+            dropout=args.dropout,
+            hidden_continuous_size=args.hidden_continuous_size,
+            loss=QuantileLoss(),
+            log_interval=10,
+            optimizer="Adam",
+            reduce_on_plateau_patience=4,
+            log_val_interval=-1,
+        )
+    else:
+        model = RecurrentNetwork.from_dataset(
+            training,
+            dropout=args.dropout,
+            hidden_size=args.hidden_size,
+            rnn_layers=args.rnn_layers,
+            cell_type=args.cell_type
+        )
+    print(f"Number of parameters in network: {model.size() / 1e3:.1f}k")
+
+    trainer = pl.Trainer(
+        max_epochs=args.max_epochs,
+        #accelerator="cuda",
+        accelerator="cpu",
+        enable_model_summary=True,
+        gradient_clip_val=args.gradient_clip_val,
+        limit_train_batches=50,
+        callbacks=[early_stop_callback],
+        limit_val_batches=1.0,
+    )
+    trainer.fit(
+        model,
+        train_dataloaders=train_dataloader,
+        val_dataloaders=val_dataloader,
+    )
+
+    # Saving the model
+    if args.output is not None:
+        best_model_path = trainer.checkpoint_callback.best_model_path
+        shutil.copy2(
+            best_model_path,
+            os.path.join(
+                args.output,
+                f"{args.model}{f'_{args.cell_type}' if args.model == 'recurrent' else ''}.ckpt".lower()))
+        </code></pre>
+        <ul>
+            <li>**Obtenção de Argumentos e Dados**:
+                <ul>
+                    <li><code>args = get_args()</code>: Analisa os argumentos da linha de comando.</li>
+                    <li><code>training, data = get_dataset(args.data, args.resource_id, args.lags)</code>: Carrega e prepara os dados de treinamento.</li>
+                </ul>
+            </li>
+            <li>**Conjuntos de Validação e DataLoaders**:
+                <ul>
+                    <li><code>validation = TimeSeriesDataSet.from_dataset(...)</code>: Cria um conjunto de dados de validação a partir do conjunto de treinamento.</li>
+                    <li><code>train_dataloader</code> e <code>val_dataloader</code>: Criam os dataloaders para treinamento e validação, que organizam os dados em lotes para o modelo.</li>
+                </ul>
+            </li>
+            <li>**Definição do Modelo**:
+                <ul>
+                    <li><code>early_stop_callback</code>: Configura um callback de Early Stopping para monitorar a perda de validação e parar o treinamento se ela não melhorar após 10 épocas.</li>
+                    <li>Um bloco condicional verifica o argumento `--model`:
+                        <ul>
+                            <li>Se <code>args.model == "tft"</code>, um <code>TemporalFusionTransformer</code> é inicializado com os hiperparâmetros fornecidos. Ele usa <code>QuantileLoss()</code> como função de perda e o otimizador "Adam".</li>
+                            <li>Caso contrário (assumindo "recurrent"), um <code>RecurrentNetwork</code> (LSTM ou GRU) é inicializado com seus hiperparâmetros.</li>
+                        </ul>
+                    </li>
+                    <li>Imprime o número de parâmetros do modelo para acompanhamento.</li>
+                </ul>
+            </li>
+            <li>**Treinador (<code>pl.Trainer</code>)**:
+                <ul>
+                    <li>Um objeto <code>pl.Trainer</code> do PyTorch Lightning é configurado para gerenciar o processo de treinamento.</li>
+                    <li>Configurações incluem: <code>max_epochs</code>, acelerador (definido para "cpu", mas pode ser "cuda" se disponível), resumo do modelo, corte de gradiente (<code>gradient_clip_val</code>), limitação de lotes de treinamento e validação, e o callback de Early Stopping.</li>
+                </ul>
+            </li>
+            <li>**Treinamento do Modelo**:
+                <ul>
+                    <li><code>trainer.fit(...)</code>: Inicia o treinamento do modelo usando os dataloaders de treinamento e validação.</li>
+                </ul>
+            </li>
+            <li>**Salvamento do Modelo**:
+                <ul>
+                    <li>Se um caminho de saída (<code>args.output</code>) for fornecido, o melhor modelo salvo pelo callback de checkpoint do trainer é copiado para o diretório de saída.</li>
+                    <li>O nome do arquivo do modelo salvo é formatado para incluir o tipo de modelo e, se for "recurrent", também o tipo de célula (LSTM/GRU).</li>
+                </ul>
+            </li>
+        </ul>
+        <p>Em resumo, este script fornece uma estrutura completa para carregar dados de métricas de pods do Kubernetes, configurar e treinar modelos de previsão de séries temporais (TFT ou redes recorrentes como LSTM/GRU) e salvar o melhor modelo treinado. Ele utiliza o PyTorch Forecasting para abstração de conjuntos de dados e modelos, e PyTorch Lightning para simplificar o ciclo de treinamento.</p>
+    </div>
+</body>
+</html>

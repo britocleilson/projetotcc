@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documentação dos Comandos de Execução dos Modelos</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+            color: #333;
+        }
+        .container {
+            max-width: 900px;
+            margin: auto;
+            background: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        h1, h2, h3 {
+            color: #0056b3;
+        }
+        pre {
+            background: #eee;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        code {
+            font-family: "Courier New", Courier, monospace;
+        }
+        .citation {
+            font-size: 0.9em;
+            color: #555;
+            margin-left: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Documentação dos Comandos de Execução dos Modelos</h1>
+        <p>Este documento detalha os comandos utilizados para executar os modelos A3TGCN, Recurrent Network (LSTM) e Temporal Fusion Transformer (TFT), incluindo seus respectivos argumentos.</p>
+
+        <h2>1. Execução do Modelo A3TGCN</h2>
+        <p><strong>Comando:</strong></p>
+        <pre><code>
+python a3tgcn.py --data ./data/hyper/train --resource-id 0 --lags 12 --hidden-dim 116 --learning-rate 0.0488556336306246 --epochs 500 --output ./modelos_treinados
+        </code></pre>
+        <p><strong>Descrição dos Argumentos:</strong></p>
+        <ul>
+            <li><code>python a3tgcn.py</code>: Invoca o interpretador Python para executar o script `a3tgcn.py`.</li>
+            <li><code>--data ./data/hyper/train</code>: Especifica o caminho para o diretório do conjunto de dados de treinamento. Neste caso, os dados estão localizados em `./data/hyper/train`.</li>
+            <li><code>--resource-id 0</code>: Define o ID do recurso do pod a ser previsto. `0` geralmente indica o recurso de memória.</li>
+            <li><code>--lags 12</code>: Indica o número de passos de tempo passados a serem utilizados como características de entrada para a sequência. Aqui, 12 passos de tempo anteriores são considerados.</li>
+            <li><code>--hidden-dim 116</code>: Define a dimensão da camada oculta do modelo A3TGCN como 116.</li>
+            <li><code>--learning-rate 0.0488556336306246</code>: Define a taxa de aprendizado para o otimizador Adam.</li>
+            <li><code>--epochs 500</code>: Especifica que o modelo será treinado por 500 épocas.</li>
+            <li><code>--output ./modelos_treinados</code>: Define o diretório onde o modelo treinado será salvo.</li>
+        </ul>
+
+        <h2>2. Execução do Modelo Recurrent Network (LSTM)</h2>
+        <p><strong>Comando:</strong></p>
+        <pre><code>
+python recurrent.py --data ./data/hyper/train --model recurrent --resource-id 0 --lags 12 --batch-size 128 --rnn-layers 3 --hidden-size 509 --dropout 0.5121521780577883 --max-epochs 500  --learning-rate 0.01 --cell-type LSTM --gradient-clip-val 46.692495219480804 --output ./modelos_treinados
+        </code></pre>
+        <p><strong>Descrição dos Argumentos:</strong></p>
+        <ul>
+            <li><code>python recurrent.py</code>: Executa o script `recurrent.py`.</li>
+            <li><code>--data ./data/hyper/train</code>: Caminho para o conjunto de dados de treinamento.</li>
+            <li><code>--model recurrent</code>: Indica que o modelo a ser utilizado é uma Recurrent Network (RNN), que pode ser LSTM ou GRU.</li>
+            <li><code>--resource-id 0</code>: Recurso de memória será previsto.</li>
+            <li><code>--lags 12</code>: 12 passos de tempo anteriores como entrada.</li>
+            <li><code>--batch-size 128</code>: O tamanho do lote para treinamento é 128.</li>
+            <li><code>--rnn-layers 3</code>: Define o número de camadas RNN como 3.</li>
+            <li><code>--hidden-size 509</code>: Define o tamanho da camada oculta da rede como 509.</li>
+            <li><code>--dropout 0.5121521780577883</code>: A taxa de dropout para regularização é 0.512....</li>
+            <li><code>--max-epochs 500</code>: O treinamento será executado por no máximo 500 épocas.</li>
+            <li><code>--learning-rate 0.01</code>: Taxa de aprendizado para o otimizador.</li>
+            <li><code>--cell-type LSTM</code>: Especifica que o tipo de célula recorrente a ser usado é LSTM.</li>
+            <li><code>--gradient-clip-val 46.692495219480804</code>: Define o valor de corte para o clipping de gradiente, ajudando a prevenir gradientes explosivos.</li>
+            <li><code>--output ./modelos_treinados</code>: Diretório para salvar o modelo treinado.</li>
+        </ul>
+
+        <h2>3. Execução do Modelo Temporal Fusion Transformer (TFT)</h2>
+        <p><strong>Comando:</strong></p>
+        <pre><code>
+python recurrent.py --data ./data/hyper/train --model tft --resource-id 0 --lags 12 --batch-size 128 --rnn-layers 5 --hidden-size 14 --attn-head-size 4 --dropout 0.2463410873119361 --max-epochs 500 --learning-rate 0.1496514012513327 --cell-type LSTM --hidden-continuous-size 30 --gradient-clip-val 41.16721023814522 --output ./modelos_treinados
+        </code></pre>
+        <p><strong>Descrição dos Argumentos:</strong></p>
+        <ul>
+            <li><code>python recurrent.py</code>: Executa o script `recurrent.py`.</li>
+            <li><code>--data ./data/hyper/train</code>: Caminho para o conjunto de dados de treinamento.</li>
+            <li><code>--model tft</code>: Indica que o modelo a ser utilizado é o Temporal Fusion Transformer.</li>
+            <li><code>--resource-id 0</code>: Recurso de memória será previsto.</li>
+            <li><code>--lags 12</code>: 12 passos de tempo anteriores como entrada.</li>
+            <li><code>--batch-size 128</code>: O tamanho do lote para treinamento é 128.</li>
+            <li><code>--rnn-layers 5</code>: Número de camadas LSTM no TFT é 5.</li>
+            <li><code>--hidden-size 14</code>: O tamanho da camada oculta no TFT é 14.</li>
+            <li><code>--attn-head-size 4</code>: O número de cabeças de atenção no TFT é 4.</li>
+            <li><code>--dropout 0.2463410873119361</code>: A taxa de dropout para regularização é 0.246....</li>
+            <li><code>--max-epochs 500</code>: O treinamento será executado por no máximo 500 épocas.</li>
+            <li><code>--learning-rate 0.1496514012513327</code>: Taxa de aprendizado para o otimizador.</li>
+            <li><code>--cell-type LSTM</code>: O tipo de célula recorrente para camadas LSTM internas do TFT é LSTM (embora para TFT, isso seja mais uma convenção para a estrutura interna).</li>
+            <li><code>--hidden-continuous-size 30</code>: O tamanho oculto para variáveis contínuas no TFT é 30.</li>
+            <li><code>--gradient-clip-val 41.16721023814522</code>: Define o valor de corte para o clipping de gradiente.</li>
+            <li><code>--output ./modelos_treinados</code>: Diretório para salvar o modelo treinado.</li>
+        </ul>
+    </div>
+</body>
+</html>
