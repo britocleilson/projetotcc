@@ -1,0 +1,14 @@
+pandas
+numpy
+matplotlib
+torch
+optuna
+torchmetrics
+torch-scatter
+torch-sparse
+torch-cluster
+torch-spline-conv
+torch_geometric
+torch_geometric_temporal
+pytorch-forecasting
+lightning
